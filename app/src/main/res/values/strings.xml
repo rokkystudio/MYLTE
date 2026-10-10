@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MYLTE</string>
+    <string name="android_client">network engineering console</string>
+    <string name="common_not_available">n/a</string>
+    <string name="nav_network_mode">Network Mode</string>
+    <string name="nav_tower_map">Tower Map</string>
+    <string name="main_network_mode_title">Network mode assistant</string>
+    <string name="main_network_mode_description">These actions open stock Android radio and network screens. MYLTE does not change preferred network mode directly; the final LTE, NR, GSM or WCDMA mode is selected by the user in the system screen.</string>
+    <string name="main_permissions_title">Permissions</string>
+    <string name="main_permissions_text">MYLTE needs location and phone state permissions to read cell identity, signal level and neighboring cell data exposed by Android.</string>
+    <string name="main_action_grant_permissions">Grant permissions</string>
+    <string name="main_action_refresh">Refresh cell data</string>
+    <string name="main_action_testing_menu">Testing menu</string>
+    <string name="main_action_advanced_testing">Testing menu</string>
+    <string name="main_action_android_11_radio">RadioInfo: Android 11+</string>
+    <string name="main_action_legacy_radio">RadioInfo: legacy shell</string>
+    <string name="main_action_android_11_minus_radio">RadioInfo: Android 10 and older</string>
+    <string name="main_action_network_operator_settings">Operator selection</string>
+    <string name="main_action_network_settings">Network settings</string>
+    <string name="main_system_menu_opening">Opening system menu</string>
+    <string name="main_system_menu_not_found">System radio menu is not available on this firmware.</string>
+    <string name="main_status_ready">Cell scanner is ready</string>
+    <string name="main_status_no_telephony">Telephony service is unavailable on this device.</string>
+    <string name="main_status_permission_required">Permissions are required to read cellular data.</string>
+    <string name="main_network_summary">Network: %1$s (%2$s)\nSIM: %3$s (%4$s)\nData type: %5$s\nPhone type: %6$s</string>
+    <string name="main_section_registered_cells">Connected cells</string>
+    <string name="main_section_neighbor_cells">Neighbor cells</string>
+    <string name="main_section_map">Tower map</string>
+    <string name="main_no_cells">No cell records are currently exposed by Android.</string>
+    <string name="main_map_no_coordinates">Android cell APIs do not provide tower coordinates. The map displays only cell records that contain coordinates.</string>
+    <plurals name="main_map_records">
+        <item quantity="one">Map records: %d</item>
+        <item quantity="other">Map records: %d</item>
+    </plurals>
+</resources>

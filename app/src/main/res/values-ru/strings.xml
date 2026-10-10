@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MYLTE</string>
+    <string name="android_client">инженерная консоль сети</string>
+    <string name="common_not_available">н/д</string>
+    <string name="nav_network_mode">Режим сети</string>
+    <string name="nav_tower_map">Карта вышек</string>
+    <string name="main_network_mode_title">Помощник режима сети</string>
+    <string name="main_network_mode_description">Эти действия открывают штатные экраны Android для radio и сети. MYLTE не меняет preferred network mode напрямую; конечный режим LTE, NR, GSM или WCDMA выбирает пользователь в системном экране.</string>
+    <string name="main_permissions_title">Разрешения</string>
+    <string name="main_permissions_text">MYLTE нужны разрешения геолокации и состояния телефона, чтобы читать identity соты, уровень сигнала и соседние соты, которые отдаёт Android.</string>
+    <string name="main_action_grant_permissions">Выдать разрешения</string>
+    <string name="main_action_refresh">Обновить данные сот</string>
+    <string name="main_action_testing_menu">Testing menu</string>
+    <string name="main_action_android_11_radio">RadioInfo: Android 11+</string>
+    <string name="main_action_legacy_radio">RadioInfo: legacy shell</string>
+    <string name="main_action_android_11_minus_radio">RadioInfo: Android 10 и ниже</string>
+    <string name="main_action_network_operator_settings">Выбор оператора</string>
+    <string name="main_action_network_settings">Настройки сети</string>
+    <string name="main_system_menu_opening">Открывается системное меню</string>
+    <string name="main_system_menu_not_found">Системное radio-меню недоступно на этой прошивке.</string>
+    <string name="main_status_ready">Сканер сот готов</string>
+    <string name="main_status_no_telephony">На устройстве недоступен Telephony service.</string>
+    <string name="main_status_permission_required">Для чтения сотовых данных нужны разрешения.</string>
+    <string name="main_network_summary">Сеть: %1$s (%2$s)\nSIM: %3$s (%4$s)\nТип данных: %5$s\nТип телефона: %6$s</string>
+    <string name="main_section_registered_cells">Подключенные соты</string>
+    <string name="main_section_neighbor_cells">Соседние соты</string>
+    <string name="main_section_map">Карта вышек</string>
+    <string name="main_no_cells">Android сейчас не отдаёт данные о сотах.</string>
+    <string name="main_map_no_coordinates">Android Cell API не отдаёт координаты вышек. Карта отображает только записи сот с координатами.</string>
+    <plurals name="main_map_records">
+        <item quantity="one">Записей на карте: %d</item>
+        <item quantity="few">Записей на карте: %d</item>
+        <item quantity="many">Записей на карте: %d</item>
+        <item quantity="other">Записей на карте: %d</item>
+    </plurals>
+</resources>
