@@ -59,22 +59,7 @@
                         android:textSize="13sp" />
 
                     <Button
-                        android:id="@+id/advancedTestingButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="46dp"
-                        android:layout_marginTop="12dp"
-                        android:background="@drawable/bg_button"
-                        android:backgroundTint="@null"
-                        android:fontFamily="sans"
-                        android:stateListAnimator="@null"
-                        android:text="@string/main_action_advanced_testing"
-                        android:textAllCaps="false"
-                        android:textColor="@color/action_button_text_color"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/android11RadioButton"
+                        android:id="@+id/radioInfoButton"
                         android:layout_width="match_parent"
                         android:layout_height="46dp"
                         android:layout_marginTop="10dp"
@@ -82,37 +67,7 @@
                         android:backgroundTint="@null"
                         android:fontFamily="sans"
                         android:stateListAnimator="@null"
-                        android:text="@string/main_action_android_11_radio"
-                        android:textAllCaps="false"
-                        android:textColor="@color/action_button_text_color"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/legacyRadioButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="46dp"
-                        android:layout_marginTop="10dp"
-                        android:background="@drawable/bg_button"
-                        android:backgroundTint="@null"
-                        android:fontFamily="sans"
-                        android:stateListAnimator="@null"
-                        android:text="@string/main_action_legacy_radio"
-                        android:textAllCaps="false"
-                        android:textColor="@color/action_button_text_color"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/android11MinusRadioButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="46dp"
-                        android:layout_marginTop="10dp"
-                        android:background="@drawable/bg_button"
-                        android:backgroundTint="@null"
-                        android:fontFamily="sans"
-                        android:stateListAnimator="@null"
-                        android:text="@string/main_action_android_11_minus_radio"
+                        android:text="@string/main_action_radio_info"
                         android:textAllCaps="false"
                         android:textColor="@color/action_button_text_color"
                         android:textSize="15sp"
@@ -150,49 +105,6 @@
                 </LinearLayout>
 
                 <LinearLayout
-                    android:id="@+id/permissionsCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:background="@drawable/bg_card"
-                    android:orientation="vertical"
-                    android:padding="14dp">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:includeFontPadding="false"
-                        android:text="@string/main_permissions_title"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:includeFontPadding="false"
-                        android:text="@string/main_permissions_text"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
-
-                    <Button
-                        android:id="@+id/grantPermissionsButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="46dp"
-                        android:layout_marginTop="12dp"
-                        android:background="@drawable/bg_button"
-                        android:backgroundTint="@null"
-                        android:fontFamily="sans"
-                        android:stateListAnimator="@null"
-                        android:text="@string/main_action_grant_permissions"
-                        android:textAllCaps="false"
-                        android:textColor="@color/action_button_text_color"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
@@ -222,76 +134,81 @@
             </LinearLayout>
         </ScrollView>
 
-        <ScrollView
+        <FrameLayout
             android:id="@+id/towerMapScreen"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:fillViewport="false"
-            android:overScrollMode="ifContentScrolls"
-            android:scrollbars="vertical">
+            android:layout_height="match_parent">
+
+            <WebView
+                android:id="@+id/towerMapView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
 
             <LinearLayout
+                android:id="@+id/mapStatusPanel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/bg_card"
+                android:elevation="8dp"
                 android:orientation="vertical"
-                android:paddingStart="12dp"
-                android:paddingTop="12dp"
-                android:paddingEnd="12dp"
-                android:paddingBottom="12dp">
+                android:padding="14dp">
 
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_card"
-                    android:orientation="vertical"
-                    android:padding="14dp">
+                    android:includeFontPadding="false"
+                    android:text="@string/main_section_map"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:includeFontPadding="false"
-                        android:text="@string/main_section_map"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/mapStatusText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:includeFontPadding="false"
-                        android:text="@string/main_map_no_coordinates"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
-
-                    <WebView
-                        android:id="@+id/towerMapView"
-                        android:layout_width="match_parent"
-                        android:layout_height="360dp"
-                        android:layout_marginTop="12dp" />
-
-                    <Button
-                        android:id="@+id/refreshButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="46dp"
-                        android:layout_marginTop="12dp"
-                        android:background="@drawable/bg_button"
-                        android:backgroundTint="@null"
-                        android:fontFamily="sans"
-                        android:stateListAnimator="@null"
-                        android:text="@string/main_action_refresh"
-                        android:textAllCaps="false"
-                        android:textColor="@color/action_button_text_color"
-                        android:textSize="15sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-
-                <LinearLayout
+                <TextView
+                    android:id="@+id/mapStatusText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:includeFontPadding="false"
+                    android:text="@string/main_map_no_coordinates"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/refreshButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
                     android:layout_marginTop="12dp"
-                    android:background="@drawable/bg_card"
+                    android:background="@drawable/bg_button"
+                    android:backgroundTint="@null"
+                    android:fontFamily="sans"
+                    android:stateListAnimator="@null"
+                    android:text="@string/main_action_refresh"
+                    android:textAllCaps="false"
+                    android:textColor="@color/action_button_text_color"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/cellDetailsPanel"
+                android:layout_width="match_parent"
+                android:layout_height="240dp"
+                android:layout_gravity="bottom"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/bg_card"
+                android:elevation="8dp"
+                android:fillViewport="false"
+                android:overScrollMode="ifContentScrolls"
+                android:scrollbars="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="14dp">
 
@@ -310,19 +227,11 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         android:orientation="vertical" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:background="@drawable/bg_card"
-                    android:orientation="vertical"
-                    android:padding="14dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
                         android:includeFontPadding="false"
                         android:text="@string/main_section_neighbor_cells"
                         android:textColor="@color/text_primary"
@@ -336,8 +245,8 @@
                         android:layout_marginTop="10dp"
                         android:orientation="vertical" />
                 </LinearLayout>
-            </LinearLayout>
-        </ScrollView>
+            </ScrollView>
+        </FrameLayout>
     </FrameLayout>
 
     <com.rokkystudio.sharedapp.neoui.NeoScreenNavigatorView

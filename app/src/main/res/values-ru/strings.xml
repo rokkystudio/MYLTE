@@ -11,10 +11,7 @@
     <string name="main_permissions_text">MYLTE нужны разрешения геолокации и состояния телефона, чтобы читать identity соты, уровень сигнала и соседние соты, которые отдаёт Android.</string>
     <string name="main_action_grant_permissions">Выдать разрешения</string>
     <string name="main_action_refresh">Обновить данные сот</string>
-    <string name="main_action_testing_menu">Testing menu</string>
-    <string name="main_action_android_11_radio">RadioInfo: Android 11+</string>
-    <string name="main_action_legacy_radio">RadioInfo: legacy shell</string>
-    <string name="main_action_android_11_minus_radio">RadioInfo: Android 10 и ниже</string>
+    <string name="main_action_radio_info">RadioInfo</string>
     <string name="main_action_network_operator_settings">Выбор оператора</string>
     <string name="main_action_network_settings">Настройки сети</string>
     <string name="main_system_menu_opening">Открывается системное меню</string>

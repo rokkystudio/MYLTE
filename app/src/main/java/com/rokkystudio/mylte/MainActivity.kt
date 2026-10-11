@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -14,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.rokkystudio.sharedapp.neoui.NeoScreenItem
@@ -37,7 +39,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bottomNavigator: NeoScreenNavigatorView
     private lateinit var networkModeScreen: View
     private lateinit var towerMapScreen: View
-    private lateinit var permissionsCard: View
     private lateinit var statusText: TextView
     private lateinit var networkSummaryText: TextView
     private lateinit var mapStatusText: TextView
@@ -46,9 +47,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var towerMapView: WebView
 
     private var selectedScreen = Screen.NETWORK_MODE
+    private var permissionDialog: AlertDialog? = null
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         renderSnapshot()
+        if (selectedScreen == Screen.TOWER_MAP && !cellRepository.hasRequiredPermissions()) {
+            showTowerMapPermissionDialog()
+        }
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -74,11 +79,19 @@ class MainActivity : AppCompatActivity() {
         configureMap()
         renderScreen()
         renderSnapshot()
+        ensureTowerMapPermissions()
     }
 
     override fun onResume() {
         super.onResume()
         renderSnapshot()
+        ensureTowerMapPermissions()
+    }
+
+    override fun onDestroy() {
+        permissionDialog?.dismiss()
+        permissionDialog = null
+        super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -91,7 +104,6 @@ class MainActivity : AppCompatActivity() {
         bottomNavigator = findViewById(R.id.bottomNavigator)
         networkModeScreen = findViewById(R.id.networkModeScreen)
         towerMapScreen = findViewById(R.id.towerMapScreen)
-        permissionsCard = findViewById(R.id.permissionsCard)
         statusText = findViewById(R.id.statusText)
         networkSummaryText = findViewById(R.id.networkSummaryText)
         mapStatusText = findViewById(R.id.mapStatusText)
@@ -101,14 +113,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bindActions() {
-        findViewById<Button>(R.id.grantPermissionsButton).setOnClickListener { requestCellPermissions() }
         findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshot() }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener { openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS) }
         findViewById<Button>(R.id.networkSettingsButton).setOnClickListener { openSettings(Settings.ACTION_WIRELESS_SETTINGS) }
-        findViewById<Button>(R.id.advancedTestingButton).setOnClickListener { openAdvancedTestingMenu() }
-        findViewById<Button>(R.id.android11RadioButton).setOnClickListener { openAndroid11RadioInfo() }
-        findViewById<Button>(R.id.legacyRadioButton).setOnClickListener { openLegacyRadioInfo() }
-        findViewById<Button>(R.id.android11MinusRadioButton).setOnClickListener { openAndroid11MinusRadioInfo() }
+        findViewById<Button>(R.id.radioInfoButton).setOnClickListener { openRadioInfo() }
     }
 
     private fun renderTopBar() {
@@ -116,7 +124,7 @@ class MainActivity : AppCompatActivity() {
             title = getString(R.string.app_name),
             subtitle = getString(R.string.android_client),
             version = BuildConfig.VERSION_NAME,
-            iconResId = R.mipmap.ic_launcher,
+            iconResId = R.mipmap.mylte_launcher,
         )
         uiSettings.bindTopBarUi(neoTopBar) {
             uiSettings.applyAppCompatNightMode()
@@ -127,14 +135,24 @@ class MainActivity : AppCompatActivity() {
     private fun renderBottomNavigator() {
         bottomNavigator.setItems(
             items = listOf(
-                NeoScreenItem(Screen.NETWORK_MODE, getString(R.string.nav_network_mode)),
-                NeoScreenItem(Screen.TOWER_MAP, getString(R.string.nav_tower_map)),
+                NeoScreenItem(
+                    value = Screen.NETWORK_MODE,
+                    title = getString(R.string.nav_network_mode),
+                    iconResId = R.drawable.ic_nav_network,
+                ),
+                NeoScreenItem(
+                    value = Screen.TOWER_MAP,
+                    title = getString(R.string.nav_tower_map),
+                    iconResId = R.drawable.ic_nav_tower_map,
+                ),
             ),
             selectedValue = selectedScreen,
             placement = NeoScreenNavigatorView.Placement.BOTTOM,
         ) { screen ->
             selectedScreen = screen
             renderScreen()
+            renderSnapshot()
+            ensureTowerMapPermissions()
         }
     }
 
@@ -149,6 +167,22 @@ class MainActivity : AppCompatActivity() {
         towerMapView.settings.domStorageEnabled = true
     }
 
+    private fun ensureTowerMapPermissions() {
+        if (selectedScreen == Screen.TOWER_MAP && !cellRepository.hasRequiredPermissions()) {
+            showTowerMapPermissionDialog()
+        }
+    }
+
+    private fun showTowerMapPermissionDialog() {
+        if (permissionDialog?.isShowing == true) return
+        permissionDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.main_permissions_title)
+            .setMessage(R.string.main_permissions_text)
+            .setPositiveButton(R.string.main_action_grant_permissions) { _, _ -> requestCellPermissions() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun requestCellPermissions() {
         permissionsLauncher.launch(
             arrayOf(
@@ -161,7 +195,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSnapshot() {
         val snapshot = cellRepository.readSnapshot()
-        permissionsCard.visibility = if (cellRepository.hasRequiredPermissions()) View.GONE else View.VISIBLE
         when (snapshot) {
             CellSnapshot.PermissionRequired -> renderPermissionRequired()
             CellSnapshot.Unavailable -> renderUnavailable()
@@ -258,28 +291,11 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun openAdvancedTestingMenu() {
-        runActivityManagerCommand("am start --user 0 -n com.android.settings/.Settings\$TestingSettingsActivity")
-    }
-
-    private fun openAndroid11RadioInfo() {
-        startExplicitActivity("com.android.phone", "com.android.phone.settings.RadioInfo")
-    }
-
-    private fun openLegacyRadioInfo() {
-        runActivityManagerCommand("am start --user 0 -n com.android.settings/.RadioInfo")
-    }
-
-    private fun openAndroid11MinusRadioInfo() {
-        startExplicitActivity("com.android.settings", "com.android.settings.RadioInfo")
-    }
-
-    private fun runActivityManagerCommand(command: String) {
-        try {
-            Runtime.getRuntime().exec(command)
-            Toast.makeText(this, R.string.main_system_menu_opening, Toast.LENGTH_SHORT).show()
-        } catch (error: Exception) {
-            Toast.makeText(this, error.localizedMessage ?: command, Toast.LENGTH_LONG).show()
+    private fun openRadioInfo() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            startExplicitActivity("com.android.phone", "com.android.phone.settings.RadioInfo")
+        } else {
+            startExplicitActivity("com.android.settings", "com.android.settings.RadioInfo")
         }
     }
 

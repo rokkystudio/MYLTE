@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     alias(libs.plugins.android.application)
 }
 
@@ -12,8 +12,8 @@ android {
         applicationId = "com.rokkystudio.mylte"
         minSdk = 26
         targetSdk = 37
-        versionCode = 6
-        versionName = "0.1.5"
+        versionCode = 13
+        versionName = "0.1.12"
     }
 
     buildFeatures {
