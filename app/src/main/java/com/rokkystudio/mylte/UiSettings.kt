@@ -2,9 +2,9 @@ package com.rokkystudio.mylte
 
 import android.content.Context
 import android.content.res.Configuration
-import com.rokkystudio.sharedapp.neoui.NeoThemeMode
-import com.rokkystudio.sharedapp.neoui.NeoTopBarView
-import com.rokkystudio.sharedapp.neoui.NeoUiSettings
+import badfox.logic.neoui.NeoThemeMode
+import badfox.logic.neoui.NeoTopBarView
+import badfox.logic.neoui.NeoUiSettings
 
 /**
  * Stores, applies and binds standard NeoUI interface settings for MYLTE.

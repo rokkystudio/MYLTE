@@ -18,9 +18,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.rokkystudio.sharedapp.neoui.NeoScreenItem
-import com.rokkystudio.sharedapp.neoui.NeoScreenNavigatorView
-import com.rokkystudio.sharedapp.neoui.NeoTopBarView
+import badfox.logic.neoui.NeoScreenItem
+import badfox.logic.neoui.NeoScreenNavigatorView
+import badfox.logic.neoui.NeoTopBarView
 
 /**
  * Shows network mode entry points and cell tower map data exposed by Android telephony APIs.
