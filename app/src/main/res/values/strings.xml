@@ -55,4 +55,8 @@
     <string name="map_coverage_not_connected">not connected</string>
     <string name="map_coverage_no_saved_data">no saved coverage</string>
     <string name="map_coverage_visibility">Show %1$s %2$s coverage</string>
+    <string name="map_action_coverage_list">Coverage networks</string>
+    <string name="map_coverage_list_title">Networks on map</string>
+    <string name="map_coverage_show">Show %1$s %2$s coverage</string>
+    <string name="map_coverage_hide">Hide %1$s %2$s coverage</string>
 </resources>

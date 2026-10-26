@@ -29,6 +29,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         val operator: String?,
         val identityText: String,
         val averageSignalDbm: Double,
+        val lastSeenAt: Long,
         val south: Double,
         val west: Double,
         val north: Double,
@@ -485,6 +486,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
                 "operator",
                 "identity_text",
                 "signal_avg_dbm",
+                "last_seen_at",
                 "grid_x",
                 "grid_y",
             ),
@@ -496,8 +498,8 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val grid = GridCell(
-                    x = cursor.getLong(5),
-                    y = cursor.getLong(6),
+                    x = cursor.getLong(6),
+                    y = cursor.getLong(7),
                 )
                 val bounds = gridBounds(grid)
                 result += CoverageCell(
@@ -506,6 +508,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
                     operator = cursor.getString(2),
                     identityText = cursor.getString(3),
                     averageSignalDbm = cursor.getDouble(4),
+                    lastSeenAt = cursor.getLong(5),
                     south = bounds[0],
                     west = bounds[1],
                     north = bounds[2],

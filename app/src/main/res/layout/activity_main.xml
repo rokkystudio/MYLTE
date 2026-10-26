@@ -187,19 +187,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
-            <LinearLayout
-                android:id="@+id/connectedCellsLegend"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|start"
-                android:layout_marginStart="12dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/bg_card"
-                android:elevation="8dp"
-                android:orientation="vertical"
-                android:padding="10dp"
-                android:visibility="gone" />
-
             <ImageButton
                 android:id="@+id/myLocationButton"
                 android:layout_width="46dp"
@@ -231,6 +218,61 @@
                 android:src="@drawable/ic_map_compass"
                 android:stateListAnimator="@null"
                 android:tint="@color/map_location_icon_tint" />
+
+            <ImageButton
+                android:id="@+id/coverageListButton"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="120dp"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/bg_map_location_button"
+                android:contentDescription="@string/map_action_coverage_list"
+                android:elevation="8dp"
+                android:padding="10dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_antenna"
+                android:stateListAnimator="@null"
+                android:tint="@color/map_location_icon_tint" />
+
+            <LinearLayout
+                android:id="@+id/coverageListPanel"
+                android:layout_width="match_parent"
+                android:layout_height="220dp"
+                android:layout_gravity="bottom"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/bg_card"
+                android:elevation="8dp"
+                android:orientation="vertical"
+                android:padding="10dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:text="@string/map_coverage_list_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <ScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_weight="1"
+                    android:fillViewport="false"
+                    android:scrollbars="vertical">
+
+                    <LinearLayout
+                        android:id="@+id/connectedCellsLegend"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+                </ScrollView>
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/towerDetailsPanel"

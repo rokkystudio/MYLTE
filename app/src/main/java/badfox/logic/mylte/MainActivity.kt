@@ -25,8 +25,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -73,6 +73,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var collectorToggleButton: Button
     private lateinit var myLocationButton: ImageButton
     private lateinit var northUpButton: ImageButton
+    private lateinit var coverageListButton: ImageButton
+    private lateinit var coverageListPanel: View
     private lateinit var connectedCellsLegend: LinearLayout
     private lateinit var towerMapView: MapView
     private lateinit var towerDetailsPanel: View
@@ -89,6 +91,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedScreen = Screen.NETWORK_MODE
     private var isFollowingLocation = true
     private var isNorthUp = true
+    private var isCoverageListVisible = false
     private var hasFollowCentered = false
     private val movementHeadingTracker = MovementHeadingTracker()
     private var lastMovementBearingDegrees: Float? = null
@@ -223,12 +226,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isTouchInsideMap(rawX: Float, rawY: Float): Boolean {
+        if (!isTouchInsideView(towerMapView, rawX, rawY)) return false
+        if (isTouchInsideView(myLocationButton, rawX, rawY)) return false
+        if (isTouchInsideView(northUpButton, rawX, rawY)) return false
+        if (isTouchInsideView(coverageListButton, rawX, rawY)) return false
+        if (coverageListPanel.visibility == View.VISIBLE &&
+            isTouchInsideView(coverageListPanel, rawX, rawY)
+        ) {
+            return false
+        }
+        if (towerDetailsPanel.visibility == View.VISIBLE &&
+            isTouchInsideView(towerDetailsPanel, rawX, rawY)
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun isTouchInsideView(view: View, rawX: Float, rawY: Float): Boolean {
         val location = IntArray(2)
-        towerMapView.getLocationOnScreen(location)
+        view.getLocationOnScreen(location)
         return rawX >= location[0] &&
-            rawX < location[0] + towerMapView.width &&
+            rawX < location[0] + view.width &&
             rawY >= location[1] &&
-            rawY < location[1] + towerMapView.height
+            rawY < location[1] + view.height
     }
 
     override fun onStart() {
@@ -244,6 +265,7 @@ class MainActivity : AppCompatActivity() {
         renderCollectorState()
         renderSnapshot()
         renderTowerEstimates()
+        renderConnectedCellsLegend()
         renderMyLocationMarker(centerMap = isFollowingLocation)
     }
 
@@ -289,9 +311,13 @@ class MainActivity : AppCompatActivity() {
         collectorToggleButton = findViewById(R.id.collectorToggleButton)
         myLocationButton = findViewById(R.id.myLocationButton)
         northUpButton = findViewById(R.id.northUpButton)
+        coverageListButton = findViewById(R.id.coverageListButton)
+        coverageListPanel = findViewById(R.id.coverageListPanel)
         connectedCellsLegend = findViewById(R.id.connectedCellsLegend)
         myLocationButton.isSelected = isFollowingLocation
         northUpButton.isSelected = isNorthUp
+        coverageListButton.isSelected = isCoverageListVisible
+        coverageListPanel.visibility = if (isCoverageListVisible) View.VISIBLE else View.GONE
         towerMapView = findViewById(R.id.towerMapView)
         towerDetailsPanel = findViewById(R.id.towerDetailsPanel)
         towerDetailsTitle = findViewById(R.id.towerDetailsTitle)
@@ -315,6 +341,9 @@ class MainActivity : AppCompatActivity() {
                 enabled = !isNorthUp,
                 animateToNorth = !isNorthUp,
             )
+        }
+        coverageListButton.setOnClickListener {
+            setCoverageListVisible(!isCoverageListVisible)
         }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener {
             openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS)
@@ -444,6 +473,7 @@ class MainActivity : AppCompatActivity() {
         val identityText: String,
         val connected: Boolean,
         val hasCoverage: Boolean,
+        val signalDbm: Int?,
     )
 
     @Suppress("DEPRECATION")
@@ -529,6 +559,7 @@ class MainActivity : AppCompatActivity() {
                 identityText = first.identityText,
                 connected = cellKey in connectedByKey,
                 hasCoverage = true,
+                signalDbm = cells.maxBy { it.lastSeenAt }.averageSignalDbm.toInt(),
             )
         }
         connectedRecords.forEach { record ->
@@ -539,6 +570,7 @@ class MainActivity : AppCompatActivity() {
                 identityText = record.identityLines.joinToString("\n"),
                 connected = true,
                 hasCoverage = record.cellKey in coverageByKey,
+                signalDbm = record.signalDbm.takeIf { it in -200..-1 },
             )
         }
 
@@ -547,7 +579,9 @@ class MainActivity : AppCompatActivity() {
                 .thenBy { it.radio }
                 .thenBy { it.cellKey }
         )
-        connectedCellsLegend.visibility = if (sortedItems.isEmpty()) View.GONE else View.VISIBLE
+        if (sortedItems.isEmpty() && isCoverageListVisible) {
+            coverageListPanel.visibility = View.VISIBLE
+        }
 
         sortedItems.forEach { item ->
             val row = LinearLayout(this).apply {
@@ -558,25 +592,37 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            val visibilityCheckBox = CheckBox(this).apply {
-                isChecked = item.cellKey !in hiddenCoverageCellKeys
+            val visibilityButton = ImageButton(this).apply {
+                val visible = item.cellKey !in hiddenCoverageCellKeys
+                setImageResource(
+                    if (visible) R.drawable.ic_visibility else R.drawable.ic_visibility_off
+                )
+                setBackgroundColor(Color.TRANSPARENT)
+                setPadding(dp(8), dp(8), dp(8), dp(8))
                 isEnabled = item.hasCoverage
+                alpha = if (item.hasCoverage) 1f else 0.35f
                 contentDescription = getString(
-                    R.string.map_coverage_visibility,
+                    if (visible) {
+                        R.string.map_coverage_hide
+                    } else {
+                        R.string.map_coverage_show
+                    },
                     item.radio,
                     item.operator ?: getString(R.string.common_not_available),
                 )
-                setOnCheckedChangeListener { _, checked ->
-                    if (checked) {
+                setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                setOnClickListener {
+                    if (item.cellKey in hiddenCoverageCellKeys) {
                         hiddenCoverageCellKeys.remove(item.cellKey)
                     } else {
                         hiddenCoverageCellKeys.add(item.cellKey)
                     }
                     renderTowerEstimates()
+                    renderConnectedCellsLegend()
                 }
             }
             row.addView(
-                visibilityCheckBox,
+                visibilityButton,
                 LinearLayout.LayoutParams(dp(40), dp(40)),
             )
 
@@ -591,6 +637,19 @@ class MainActivity : AppCompatActivity() {
                     marginEnd = dp(8)
                 },
             )
+
+            if (item.connected) {
+                row.addView(
+                    ImageView(this).apply {
+                        setImageResource(R.drawable.ic_antenna)
+                        setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                        contentDescription = getString(R.string.map_coverage_connected)
+                    },
+                    LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                        marginEnd = dp(6)
+                    },
+                )
+            }
 
             row.addView(
                 TextView(this).apply {
@@ -609,6 +668,9 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         )
+                        item.signalDbm?.let {
+                            append(" · ").append(it).append(" dBm")
+                        }
                         if (!item.hasCoverage) {
                             append(" · ").append(getString(R.string.map_coverage_no_saved_data))
                         }
@@ -628,6 +690,16 @@ class MainActivity : AppCompatActivity() {
             )
 
             connectedCellsLegend.addView(row)
+        }
+    }
+
+    private fun setCoverageListVisible(visible: Boolean) {
+        isCoverageListVisible = visible
+        coverageListButton.isSelected = visible
+        coverageListPanel.visibility = if (visible) View.VISIBLE else View.GONE
+        if (visible) {
+            towerDetailsPanel.visibility = View.GONE
+            renderConnectedCellsLegend()
         }
     }
 
@@ -922,6 +994,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTowerDetails(estimate: CellDatabase.TowerEstimate) {
+        setCoverageListVisible(false)
         towerDetailsTitle.text = getString(R.string.map_tower_title, estimate.radio)
         towerDetailsText.text = getString(
             R.string.map_tower_details,
