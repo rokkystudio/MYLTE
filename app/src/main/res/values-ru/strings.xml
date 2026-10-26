@@ -42,4 +42,7 @@
     <string name="collector_notification_permissions">Ожидание разрешений для чтения данных сот.</string>
     <string name="collector_notification_unavailable">Telephony service недоступен.</string>
     <string name="collector_notification_cells">Подключено: %1$d · Соседних: %2$d</string>
+    <string name="collector_notification_permission_title">Нужны уведомления</string>
+    <string name="collector_notification_permission_text">Разрешите уведомления MYLTE, чтобы foreground-сервис сбора данных был виден в шторке.</string>
+    <string name="collector_notification_permission_settings">Открыть настройки уведомлений</string>
 </resources>

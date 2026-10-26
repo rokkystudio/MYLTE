@@ -40,4 +40,7 @@
     <string name="collector_notification_permissions">Waiting for cellular permissions.</string>
     <string name="collector_notification_unavailable">Telephony service is unavailable.</string>
     <string name="collector_notification_cells">Connected: %1$d · Neighbor: %2$d</string>
+    <string name="collector_notification_permission_title">Notifications are required</string>
+    <string name="collector_notification_permission_text">Allow MYLTE notifications so the foreground collection service remains visible in the notification shade.</string>
+    <string name="collector_notification_permission_settings">Open notification settings</string>
 </resources>

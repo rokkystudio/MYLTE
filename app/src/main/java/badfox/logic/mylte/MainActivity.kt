@@ -68,13 +68,24 @@ class MainActivity : AppCompatActivity() {
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         renderSnapshot()
         if (pendingCollectorStart && cellRepository.hasRequiredPermissions()) {
-            pendingCollectorStart = false
-            startCollector()
+            requestNotificationPermissionForCollector()
         } else {
             pendingCollectorStart = false
         }
         if (selectedScreen == Screen.TOWER_MAP && !cellRepository.hasRequiredPermissions()) {
             showCellPermissionDialog()
+        }
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (pendingCollectorStart && granted) {
+            pendingCollectorStart = false
+            startCollector()
+        } else {
+            pendingCollectorStart = false
+            if (!granted) {
+                showNotificationPermissionDialog()
+            }
         }
     }
 
@@ -268,12 +279,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestCollectorStart() {
-        if (cellRepository.hasRequiredPermissions()) {
+        pendingCollectorStart = true
+        if (!cellRepository.hasRequiredPermissions()) {
+            requestCellPermissions()
+            return
+        }
+        requestNotificationPermissionForCollector()
+    }
+
+    private fun requestNotificationPermissionForCollector() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingCollectorStart = false
             startCollector()
             return
         }
-        pendingCollectorStart = true
-        requestCellPermissions()
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun showNotificationPermissionDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.collector_notification_permission_title)
+            .setMessage(R.string.collector_notification_permission_text)
+            .setPositiveButton(R.string.collector_notification_permission_settings) { _, _ ->
+                startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                )
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun startCollector() {
@@ -313,9 +350,6 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.READ_PHONE_STATE,
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.POST_NOTIFICATIONS
-        }
         permissionsLauncher.launch(permissions.toTypedArray())
     }
 
