@@ -59,4 +59,5 @@
     <string name="map_coverage_list_title">Networks on map</string>
     <string name="map_coverage_show">Show %1$s %2$s coverage</string>
     <string name="map_coverage_hide">Hide %1$s %2$s coverage</string>
+    <string name="map_coverage_list_close">Close network list</string>
 </resources>

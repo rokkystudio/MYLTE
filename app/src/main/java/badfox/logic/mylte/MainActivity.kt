@@ -74,7 +74,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var myLocationButton: ImageButton
     private lateinit var northUpButton: ImageButton
     private lateinit var coverageListButton: ImageButton
+    private lateinit var coverageListCloseButton: ImageButton
     private lateinit var coverageListPanel: View
+    private lateinit var mapCoverageLegend: LinearLayout
     private lateinit var connectedCellsLegend: LinearLayout
     private lateinit var towerMapView: MapView
     private lateinit var towerDetailsPanel: View
@@ -312,7 +314,9 @@ class MainActivity : AppCompatActivity() {
         myLocationButton = findViewById(R.id.myLocationButton)
         northUpButton = findViewById(R.id.northUpButton)
         coverageListButton = findViewById(R.id.coverageListButton)
+        coverageListCloseButton = findViewById(R.id.coverageListCloseButton)
         coverageListPanel = findViewById(R.id.coverageListPanel)
+        mapCoverageLegend = findViewById(R.id.mapCoverageLegend)
         connectedCellsLegend = findViewById(R.id.connectedCellsLegend)
         myLocationButton.isSelected = isFollowingLocation
         northUpButton.isSelected = isNorthUp
@@ -343,7 +347,10 @@ class MainActivity : AppCompatActivity() {
             )
         }
         coverageListButton.setOnClickListener {
-            setCoverageListVisible(!isCoverageListVisible)
+            setCoverageListVisible(true)
+        }
+        coverageListCloseButton.setOnClickListener {
+            setCoverageListVisible(false)
         }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener {
             openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS)
@@ -559,7 +566,7 @@ class MainActivity : AppCompatActivity() {
                 identityText = first.identityText,
                 connected = cellKey in connectedByKey,
                 hasCoverage = true,
-                signalDbm = cells.maxBy { it.lastSeenAt }.averageSignalDbm.toInt(),
+                signalDbm = null,
             )
         }
         connectedRecords.forEach { record ->
@@ -579,6 +586,7 @@ class MainActivity : AppCompatActivity() {
                 .thenBy { it.radio }
                 .thenBy { it.cellKey }
         )
+        renderMapCoverageLegend(sortedItems)
         if (sortedItems.isEmpty() && isCoverageListVisible) {
             coverageListPanel.visibility = View.VISIBLE
         }
@@ -638,58 +646,110 @@ class MainActivity : AppCompatActivity() {
                 },
             )
 
-            if (item.connected) {
-                row.addView(
-                    ImageView(this).apply {
-                        setImageResource(R.drawable.ic_antenna)
-                        setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
-                        contentDescription = getString(R.string.map_coverage_connected)
-                    },
-                    LinearLayout.LayoutParams(dp(22), dp(22)).apply {
-                        marginEnd = dp(6)
-                    },
-                )
+            val networkText = TextView(this).apply {
+                text = buildString {
+                    append(item.radio)
+                    item.operator?.takeIf { it.isNotBlank() }?.let {
+                        append(" · ").append(it)
+                    }
+                    item.identityText.lineSequence()
+                        .firstOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { append("\n").append(it) }
+                    if (!item.hasCoverage) {
+                        append("\n").append(getString(R.string.map_coverage_no_saved_data))
+                    }
+                }
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                textSize = 12f
+                includeFontPadding = false
             }
+            row.addView(
+                networkText,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            )
 
+            val statusColumn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                visibility = if (item.connected) View.VISIBLE else View.INVISIBLE
+            }
+            statusColumn.addView(
+                ImageView(this).apply {
+                    setImageResource(R.drawable.ic_antenna)
+                    setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    contentDescription = getString(R.string.map_coverage_connected)
+                },
+                LinearLayout.LayoutParams(dp(22), dp(22)),
+            )
+            statusColumn.addView(
+                TextView(this).apply {
+                    text = getString(R.string.map_coverage_connected)
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    textSize = 10f
+                    includeFontPadding = false
+                    gravity = android.view.Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
+            )
+            statusColumn.addView(
+                TextView(this).apply {
+                    text = item.signalDbm?.let { "$it dBm" } ?: ""
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
+                    textSize = 11f
+                    includeFontPadding = false
+                    gravity = android.view.Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
+            )
+            row.addView(
+                statusColumn,
+                LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
+            )
+
+            connectedCellsLegend.addView(row)
+        }
+    }
+
+    private fun renderMapCoverageLegend(items: List<CoverageLegendItem>) {
+        mapCoverageLegend.removeAllViews()
+        val visibleItems = items.filter { it.cellKey !in hiddenCoverageCellKeys }
+        mapCoverageLegend.visibility = if (visibleItems.isEmpty()) View.GONE else View.VISIBLE
+
+        visibleItems.forEach { item ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                if (mapCoverageLegend.childCount > 0) {
+                    setPadding(0, dp(4), 0, 0)
+                }
+            }
+            row.addView(
+                View(this).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(towerColor(item.cellKey))
+                    }
+                },
+                LinearLayout.LayoutParams(dp(10), dp(10)).apply {
+                    marginEnd = dp(6)
+                },
+            )
             row.addView(
                 TextView(this).apply {
                     text = buildString {
                         append(item.radio)
-                        item.operator?.takeIf { it.isNotBlank() }?.let {
-                            append(" · ").append(it)
-                        }
-                        append("\n")
-                        append(
-                            getString(
-                                if (item.connected) {
-                                    R.string.map_coverage_connected
-                                } else {
-                                    R.string.map_coverage_not_connected
-                                }
-                            )
-                        )
-                        item.signalDbm?.let {
-                            append(" · ").append(it).append(" dBm")
-                        }
-                        if (!item.hasCoverage) {
-                            append(" · ").append(getString(R.string.map_coverage_no_saved_data))
-                        }
                         item.identityText.lineSequence()
                             .firstOrNull()
                             ?.takeIf { it.isNotBlank() }
                             ?.let { append(" · ").append(it) }
                     }
                     setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
-                    textSize = 12f
+                    textSize = 11f
                     includeFontPadding = false
-                },
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ),
+                }
             )
-
-            connectedCellsLegend.addView(row)
+            mapCoverageLegend.addView(row)
         }
     }
 

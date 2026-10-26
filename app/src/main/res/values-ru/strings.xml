@@ -61,4 +61,5 @@
     <string name="map_coverage_list_title">Сети на карте</string>
     <string name="map_coverage_show">Показать покрытие %1$s %2$s</string>
     <string name="map_coverage_hide">Скрыть покрытие %1$s %2$s</string>
+    <string name="map_coverage_list_close">Закрыть список сетей</string>
 </resources>
