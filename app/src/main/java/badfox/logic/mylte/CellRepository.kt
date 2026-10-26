@@ -78,6 +78,7 @@ class CellRepository(private val context: Context) {
                 "RSSNR: ${signal.rssnr}",
             ),
             signalDbm = signal.dbm,
+            signalLevel = signal.level,
             persistable = identity.mccString != null &&
                 identity.mncString != null &&
                 identity.tac != Int.MAX_VALUE &&
@@ -101,6 +102,7 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            signalLevel = signal.level,
             persistable = identity.mccString != null &&
                 identity.mncString != null &&
                 identity.lac != Int.MAX_VALUE &&
@@ -124,6 +126,7 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            signalLevel = signal.level,
             persistable = identity.mccString != null &&
                 identity.mncString != null &&
                 identity.lac != Int.MAX_VALUE &&
@@ -148,6 +151,7 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            signalLevel = signal.level,
             persistable = identity.systemId != Int.MAX_VALUE &&
                 identity.networkId != Int.MAX_VALUE &&
                 identity.basestationId != Int.MAX_VALUE,
@@ -170,6 +174,7 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            signalLevel = signal.level,
             persistable = identity.mccString != null &&
                 identity.mncString != null &&
                 identity.lac != Int.MAX_VALUE &&
@@ -194,6 +199,7 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            signalLevel = signal.level,
             persistable = identity?.mccString != null &&
                 identity.mncString != null &&
                 identity.tac != Int.MAX_VALUE &&

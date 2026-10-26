@@ -493,6 +493,7 @@ class MainActivity : AppCompatActivity() {
         val connected: Boolean,
         val hasCoverage: Boolean,
         val signalDbm: Int?,
+        val signalLevel: Int?,
     )
 
     @Suppress("DEPRECATION")
@@ -579,6 +580,7 @@ class MainActivity : AppCompatActivity() {
                 connected = cellKey in connectedByKey,
                 hasCoverage = true,
                 signalDbm = null,
+                signalLevel = null,
             )
         }
         connectedRecords.forEach { record ->
@@ -590,6 +592,7 @@ class MainActivity : AppCompatActivity() {
                 connected = true,
                 hasCoverage = record.cellKey in coverageByKey,
                 signalDbm = record.signalDbm.takeIf { it in -200..-1 },
+                signalLevel = record.signalLevel.takeIf { it in 0..4 },
             )
         }
 
@@ -712,7 +715,7 @@ class MainActivity : AppCompatActivity() {
             )
             row.addView(
                 ImageView(this).apply {
-                    setImageResource(R.drawable.ic_antenna)
+                    setImageResource(signalLevelIcon(item.signalLevel))
                     setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
                     contentDescription = getString(R.string.map_coverage_connected)
                     visibility = if (item.connected) View.VISIBLE else View.INVISIBLE
@@ -801,6 +804,17 @@ class MainActivity : AppCompatActivity() {
                 .toSet()
 
             else -> emptySet()
+        }
+    }
+
+    private fun signalLevelIcon(level: Int?): Int {
+        return when (level) {
+            0 -> badfox.logic.icons.R.drawable.ms_signal_cellular_0_bar
+            1 -> badfox.logic.icons.R.drawable.ms_signal_cellular_1_bar
+            2 -> badfox.logic.icons.R.drawable.ms_signal_cellular_2_bar
+            3 -> badfox.logic.icons.R.drawable.ms_signal_cellular_3_bar
+            4 -> badfox.logic.icons.R.drawable.ms_signal_cellular_4_bar
+            else -> badfox.logic.icons.R.drawable.ms_signal_cellular_0_bar
         }
     }
 
