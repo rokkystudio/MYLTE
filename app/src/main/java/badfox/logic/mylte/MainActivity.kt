@@ -44,6 +44,7 @@ import org.maplibre.android.annotations.Polygon
 import org.maplibre.android.annotations.PolygonOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.gestures.RotateGestureDetector
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -375,11 +376,26 @@ class MainActivity : AppCompatActivity() {
     private fun configureMap() {
         towerMapView.getMapAsync { map ->
             towerMap = map
-            map.uiSettings.setRotateGesturesEnabled(!isNorthUp)
+            map.uiSettings.setRotateGesturesEnabled(true)
             map.cameraPosition = CameraPosition.Builder()
                 .target(LatLng(20.0, 0.0))
                 .zoom(2.0)
                 .build()
+            map.addOnRotateListener(
+                object : MapLibreMap.OnRotateListener {
+                    override fun onRotateBegin(detector: RotateGestureDetector) {
+                        if (isNorthUp) {
+                            setNorthUpEnabled(false)
+                        }
+                    }
+
+                    override fun onRotate(detector: RotateGestureDetector) {
+                    }
+
+                    override fun onRotateEnd(detector: RotateGestureDetector) {
+                    }
+                }
+            )
             map.setOnMarkerClickListener { marker ->
                 val estimate = towerByMarkerId[marker.id] ?: return@setOnMarkerClickListener false
                 showTowerDetails(estimate)
@@ -513,7 +529,7 @@ class MainActivity : AppCompatActivity() {
         northUpButton.contentDescription = getString(
             if (enabled) R.string.map_action_north_up else R.string.map_action_heading_up
         )
-        towerMap?.uiSettings?.setRotateGesturesEnabled(!enabled)
+        towerMap?.uiSettings?.setRotateGesturesEnabled(true)
         renderMyLocationMarker(centerMap = isFollowingLocation)
     }
 
