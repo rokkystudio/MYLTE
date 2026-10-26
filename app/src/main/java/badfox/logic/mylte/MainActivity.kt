@@ -25,6 +25,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -83,6 +84,7 @@ class MainActivity : AppCompatActivity() {
     private val towerMarkers = mutableListOf<Marker>()
     private val coveragePolygons = mutableListOf<Polygon>()
     private val towerByMarkerId = mutableMapOf<Long, CellDatabase.TowerEstimate>()
+    private val hiddenCoverageCellKeys = mutableSetOf<String>()
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var isFollowingLocation = true
@@ -428,6 +430,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private data class CoverageGridKey(
+        val south: Double,
+        val west: Double,
+        val north: Double,
+        val east: Double,
+    )
+
+    private data class CoverageLegendItem(
+        val cellKey: String,
+        val radio: String,
+        val operator: String?,
+        val identityText: String,
+        val connected: Boolean,
+        val hasCoverage: Boolean,
+    )
+
     @Suppress("DEPRECATION")
     private fun renderTowerEstimates() {
         val map = towerMap ?: return
@@ -439,47 +457,99 @@ class MainActivity : AppCompatActivity() {
         towerMarkers.clear()
         towerByMarkerId.clear()
 
-        cellDatabase.readCoverageCells().forEach { cell ->
-            val color = towerColor(cell.cellKey)
-            val alpha = coverageAlpha(cell.averageSignalDbm)
-            val polygon = map.addPolygon(
-                PolygonOptions()
-                    .add(
-                        LatLng(cell.south, cell.west),
-                        LatLng(cell.south, cell.east),
-                        LatLng(cell.north, cell.east),
-                        LatLng(cell.north, cell.west),
-                    )
-                    .fillColor(color)
-                    .strokeColor(Color.TRANSPARENT)
-                    .alpha(alpha)
-            )
-            coveragePolygons += polygon
-        }
+        val connectedCellKeys = currentConnectedCellKeys()
+        val visibleCoverage = cellDatabase.readCoverageCells()
+            .filter { it.cellKey !in hiddenCoverageCellKeys }
 
-        cellDatabase.readTowerEstimates().forEach { estimate ->
-            val marker = map.addMarker(
-                MarkerOptions()
-                    .position(LatLng(estimate.latitude, estimate.longitude))
-                    .icon(createTowerMarkerIcon(towerColor(estimate.cellKey)))
-            )
-            towerMarkers += marker
-            towerByMarkerId[marker.id] = estimate
-        }
+        visibleCoverage
+            .groupBy {
+                CoverageGridKey(
+                    south = it.south,
+                    west = it.west,
+                    north = it.north,
+                    east = it.east,
+                )
+            }
+            .forEach { (grid, cells) ->
+                val connectedCells = cells.filter { it.cellKey in connectedCellKeys }
+                val renderedCells = connectedCells.ifEmpty { cells }
+                val color = blendTowerColors(renderedCells.map { towerColor(it.cellKey) })
+                val alpha = renderedCells.maxOf { coverageAlpha(it.averageSignalDbm) }
+                val polygon = map.addPolygon(
+                    PolygonOptions()
+                        .add(
+                            LatLng(grid.south, grid.west),
+                            LatLng(grid.south, grid.east),
+                            LatLng(grid.north, grid.east),
+                            LatLng(grid.north, grid.west),
+                        )
+                        .fillColor(color)
+                        .strokeColor(Color.TRANSPARENT)
+                        .alpha(alpha)
+                )
+                coveragePolygons += polygon
+            }
+
+        cellDatabase.readTowerEstimates()
+            .asSequence()
+            .filter { it.cellKey !in hiddenCoverageCellKeys }
+            .sortedBy { it.cellKey in connectedCellKeys }
+            .forEach { estimate ->
+                val marker = map.addMarker(
+                    MarkerOptions()
+                        .position(LatLng(estimate.latitude, estimate.longitude))
+                        .icon(createTowerMarkerIcon(towerColor(estimate.cellKey)))
+                )
+                towerMarkers += marker
+                towerByMarkerId[marker.id] = estimate
+            }
     }
 
     private fun renderConnectedCellsLegend() {
         connectedCellsLegend.removeAllViews()
-        val connected = when (val snapshot = cellRepository.readSnapshot()) {
+
+        val connectedRecords = when (val snapshot = cellRepository.readSnapshot()) {
             is CellSnapshot.Available -> snapshot.records
                 .filter { it.registered && it.persistable }
                 .distinctBy { it.cellKey }
 
             else -> emptyList()
         }
+        val connectedByKey = connectedRecords.associateBy { it.cellKey }
+        val coverageByKey = cellDatabase.readCoverageCells()
+            .groupBy { it.cellKey }
 
-        connectedCellsLegend.visibility = if (connected.isEmpty()) View.GONE else View.VISIBLE
-        connected.forEach { record ->
+        val legendItems = linkedMapOf<String, CoverageLegendItem>()
+        coverageByKey.forEach { (cellKey, cells) ->
+            val first = cells.first()
+            legendItems[cellKey] = CoverageLegendItem(
+                cellKey = cellKey,
+                radio = first.radio,
+                operator = first.operator,
+                identityText = first.identityText,
+                connected = cellKey in connectedByKey,
+                hasCoverage = true,
+            )
+        }
+        connectedRecords.forEach { record ->
+            legendItems[record.cellKey] = CoverageLegendItem(
+                cellKey = record.cellKey,
+                radio = record.radio,
+                operator = record.operator,
+                identityText = record.identityLines.joinToString("\n"),
+                connected = true,
+                hasCoverage = record.cellKey in coverageByKey,
+            )
+        }
+
+        val sortedItems = legendItems.values.sortedWith(
+            compareByDescending<CoverageLegendItem> { it.connected }
+                .thenBy { it.radio }
+                .thenBy { it.cellKey }
+        )
+        connectedCellsLegend.visibility = if (sortedItems.isEmpty()) View.GONE else View.VISIBLE
+
+        sortedItems.forEach { item ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
@@ -487,35 +557,98 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, dp(6), 0, 0)
                 }
             }
+
+            val visibilityCheckBox = CheckBox(this).apply {
+                isChecked = item.cellKey !in hiddenCoverageCellKeys
+                isEnabled = item.hasCoverage
+                contentDescription = getString(
+                    R.string.map_coverage_visibility,
+                    item.radio,
+                    item.operator ?: getString(R.string.common_not_available),
+                )
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked) {
+                        hiddenCoverageCellKeys.remove(item.cellKey)
+                    } else {
+                        hiddenCoverageCellKeys.add(item.cellKey)
+                    }
+                    renderTowerEstimates()
+                }
+            }
+            row.addView(
+                visibilityCheckBox,
+                LinearLayout.LayoutParams(dp(40), dp(40)),
+            )
+
             row.addView(
                 View(this).apply {
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(towerColor(record.cellKey))
+                        setColor(towerColor(item.cellKey))
                     }
                 },
-                LinearLayout.LayoutParams(dp(12), dp(12)).apply {
+                LinearLayout.LayoutParams(dp(14), dp(14)).apply {
                     marginEnd = dp(8)
                 },
             )
+
             row.addView(
                 TextView(this).apply {
                     text = buildString {
-                        append(record.radio)
-                        record.operator?.takeIf { it.isNotBlank() }?.let {
+                        append(item.radio)
+                        item.operator?.takeIf { it.isNotBlank() }?.let {
                             append(" · ").append(it)
                         }
-                        record.identityLines.firstOrNull()?.takeIf { it.isNotBlank() }?.let {
-                            append(" · ").append(it)
+                        append("\n")
+                        append(
+                            getString(
+                                if (item.connected) {
+                                    R.string.map_coverage_connected
+                                } else {
+                                    R.string.map_coverage_not_connected
+                                }
+                            )
+                        )
+                        if (!item.hasCoverage) {
+                            append(" · ").append(getString(R.string.map_coverage_no_saved_data))
                         }
+                        item.identityText.lineSequence()
+                            .firstOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { append(" · ").append(it) }
                     }
                     setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
                     textSize = 12f
                     includeFontPadding = false
-                }
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
             )
+
             connectedCellsLegend.addView(row)
         }
+    }
+
+    private fun currentConnectedCellKeys(): Set<String> {
+        return when (val snapshot = cellRepository.readSnapshot()) {
+            is CellSnapshot.Available -> snapshot.records
+                .asSequence()
+                .filter { it.registered && it.persistable }
+                .map { it.cellKey }
+                .toSet()
+
+            else -> emptySet()
+        }
+    }
+
+    private fun blendTowerColors(colors: List<Int>): Int {
+        if (colors.isEmpty()) return Color.TRANSPARENT
+        val red = colors.sumOf { Color.red(it) } / colors.size
+        val green = colors.sumOf { Color.green(it) } / colors.size
+        val blue = colors.sumOf { Color.blue(it) } / colors.size
+        return Color.rgb(red, green, blue)
     }
 
     private fun towerColor(cellKey: String): Int {
