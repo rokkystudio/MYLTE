@@ -80,33 +80,85 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             db.execSQL("ALTER TABLE tower_estimates ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0")
             db.execSQL("UPDATE tower_estimates SET last_seen_at = updated_at WHERE last_seen_at = 0")
         }
+        if (oldVersion < 3) {
+            deleteInvalidIdentityRows(db)
+        }
     }
 
     /**
-     * Adds one accepted precise-GPS cellular measurement, applies per-cell rolling retention,
-     * and refreshes the cached estimate for that cell.
+     * Records that Android currently exposes these cells.
+     *
+     * This refreshes last_seen_at for already mapped towers even when GPS is unavailable, so a
+     * working tower never becomes stale merely because precise location collection was disabled.
      */
-    fun insertMeasurement(record: CellTowerRecord, location: Location, recordedAt: Long = System.currentTimeMillis()) {
-        val signalDbm = record.signalDbm
-        if (signalDbm !in MIN_VALID_DBM..MAX_VALID_DBM) return
+    fun touchObservedCells(records: List<CellTowerRecord>, observedAt: Long = System.currentTimeMillis()) {
+        val acceptedRecords = records.filter { it.persistable }
+        if (acceptedRecords.isEmpty()) return
+        writableDatabase.beginTransaction()
+        try {
+            acceptedRecords.forEach { record ->
+                val values = ContentValues().apply {
+                    put("radio", record.radio)
+                    put("operator", record.operator)
+                    put("identity_text", record.identityLines.joinToString("\n"))
+                    put("last_seen_at", observedAt)
+                }
+                writableDatabase.update(
+                    "tower_estimates",
+                    values,
+                    "cell_key = ?",
+                    arrayOf(record.cellKey),
+                )
+            }
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
+    }
+
+    /**
+     * Adds one scan worth of precise-GPS cellular measurements in a single transaction.
+     *
+     * Per-cell rolling retention is applied only after new rows are inserted. Each affected tower
+     * estimate is then recalculated once, regardless of how many records the scan contained.
+     */
+    fun insertMeasurements(
+        records: List<CellTowerRecord>,
+        location: Location,
+        recordedAt: Long = System.currentTimeMillis(),
+    ) {
+        val acceptedRecords = records.filter {
+            it.persistable && it.signalDbm in MIN_VALID_DBM..MAX_VALID_DBM
+        }
+        if (acceptedRecords.isEmpty()) return
 
         writableDatabase.beginTransaction()
         try {
-            val values = ContentValues().apply {
-                put("cell_key", record.cellKey)
-                put("radio", record.radio)
-                put("operator", record.operator)
-                put("identity_text", record.identityLines.joinToString("\n"))
-                put("registered", if (record.registered) 1 else 0)
-                put("signal_dbm", signalDbm)
-                put("latitude", location.latitude)
-                put("longitude", location.longitude)
-                put("gps_accuracy_m", location.accuracy.toDouble())
-                put("recorded_at", recordedAt)
+            acceptedRecords.forEach { record ->
+                val values = ContentValues().apply {
+                    put("cell_key", record.cellKey)
+                    put("radio", record.radio)
+                    put("operator", record.operator)
+                    put("identity_text", record.identityLines.joinToString("\n"))
+                    put("registered", if (record.registered) 1 else 0)
+                    put("signal_dbm", record.signalDbm)
+                    put("latitude", location.latitude)
+                    put("longitude", location.longitude)
+                    put("gps_accuracy_m", location.accuracy.toDouble())
+                    put("recorded_at", recordedAt)
+                }
+                writableDatabase.insertOrThrow("cell_measurements", null, values)
             }
-            writableDatabase.insertOrThrow("cell_measurements", null, values)
-            pruneMeasurements(record.cellKey)
-            updateTowerEstimate(record.cellKey)
+
+            acceptedRecords
+                .asSequence()
+                .map { it.cellKey }
+                .distinct()
+                .forEach { cellKey ->
+                    pruneMeasurements(cellKey)
+                    updateTowerEstimate(cellKey)
+                }
+
             writableDatabase.setTransactionSuccessful()
         } finally {
             writableDatabase.endTransaction()
@@ -264,6 +316,16 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    private fun deleteInvalidIdentityRows(db: SQLiteDatabase) {
+        val invalidWhere = """
+            cell_key LIKE '%:null:%'
+            OR cell_key LIKE '%:2147483647:%'
+            OR cell_key LIKE '%:9223372036854775807%'
+        """.trimIndent()
+        db.delete("cell_measurements", invalidWhere, null)
+        db.delete("tower_estimates", invalidWhere, null)
+    }
+
     private fun distanceMeters(
         latitudeA: Double,
         longitudeA: Double,
@@ -283,7 +345,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
 
     private companion object {
         const val DATABASE_NAME = "mylte.db"
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 3
         const val MAX_MEASUREMENTS_PER_CELL = 5_000
         const val MIN_VALID_DBM = -200
         const val MAX_VALID_DBM = -1

@@ -78,6 +78,10 @@ class CellRepository(private val context: Context) {
                 "RSSNR: ${signal.rssnr}",
             ),
             signalDbm = signal.dbm,
+            persistable = identity.mccString != null &&
+                identity.mncString != null &&
+                identity.tac != Int.MAX_VALUE &&
+                identity.ci != Int.MAX_VALUE,
         )
     }
 
@@ -97,6 +101,10 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            persistable = identity.mccString != null &&
+                identity.mncString != null &&
+                identity.lac != Int.MAX_VALUE &&
+                identity.cid != Int.MAX_VALUE,
         )
     }
 
@@ -116,6 +124,10 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            persistable = identity.mccString != null &&
+                identity.mncString != null &&
+                identity.lac != Int.MAX_VALUE &&
+                identity.cid != Int.MAX_VALUE,
         )
     }
 
@@ -136,6 +148,9 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            persistable = identity.systemId != Int.MAX_VALUE &&
+                identity.networkId != Int.MAX_VALUE &&
+                identity.basestationId != Int.MAX_VALUE,
         )
     }
 
@@ -155,6 +170,10 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            persistable = identity.mccString != null &&
+                identity.mncString != null &&
+                identity.lac != Int.MAX_VALUE &&
+                identity.cid != Int.MAX_VALUE,
         )
     }
 
@@ -175,6 +194,10 @@ class CellRepository(private val context: Context) {
             ),
             signalLines = signalLines(signal),
             signalDbm = signal.dbm,
+            persistable = identity?.mccString != null &&
+                identity.mncString != null &&
+                identity.tac != Int.MAX_VALUE &&
+                identity.nci != Long.MAX_VALUE,
         )
     }
 

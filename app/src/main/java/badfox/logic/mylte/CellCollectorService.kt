@@ -34,6 +34,7 @@ class CellCollectorService : Service(), LocationListener {
     private val handler = Handler(Looper.getMainLooper())
     private val databaseExecutor = Executors.newSingleThreadExecutor()
     private var collectionScheduled = false
+    private var gpsUpdatesRegistered = false
     private var latestPreciseLocation: Location? = null
 
     private val collectRunnable = object : Runnable {
@@ -49,7 +50,6 @@ class CellCollectorService : Service(), LocationListener {
         cellDatabase = CellDatabase(applicationContext)
         locationManager = getSystemService(LocationManager::class.java)
         createNotificationChannel()
-        startGpsUpdates()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -68,9 +68,14 @@ class CellCollectorService : Service(), LocationListener {
     override fun onDestroy() {
         handler.removeCallbacks(collectRunnable)
         collectionScheduled = false
-        locationManager.removeUpdates(this)
-        databaseExecutor.shutdownNow()
-        cellDatabase.close()
+        if (gpsUpdatesRegistered) {
+            locationManager.removeUpdates(this)
+            gpsUpdatesRegistered = false
+        }
+        databaseExecutor.execute {
+            cellDatabase.close()
+        }
+        databaseExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -93,6 +98,9 @@ class CellCollectorService : Service(), LocationListener {
     }
 
     override fun onProviderEnabled(provider: String) {
+        if (provider == LocationManager.GPS_PROVIDER) {
+            latestPreciseLocation = null
+        }
     }
 
     override fun onProviderDisabled(provider: String) {
@@ -121,29 +129,35 @@ class CellCollectorService : Service(), LocationListener {
             snapshot == CellSnapshot.Unavailable ->
                 getString(R.string.collector_notification_unavailable)
 
-            location == null ->
-                getString(R.string.collector_notification_waiting_precise_gps, MAX_GPS_ACCURACY_METERS.toInt())
-
             snapshot is CellSnapshot.Available -> {
-                val acceptedLocation = Location(location)
                 val records = snapshot.records
+                val acceptedLocation = location?.let(::Location)
                 databaseExecutor.execute {
-                    records.forEach { record ->
-                        cellDatabase.insertMeasurement(record, acceptedLocation)
+                    cellDatabase.touchObservedCells(records)
+                    if (acceptedLocation != null) {
+                        cellDatabase.insertMeasurements(records, acceptedLocation)
                     }
                     sendBroadcast(
                         Intent(ACTION_SNAPSHOT_COLLECTED)
                             .setPackage(packageName)
                     )
                 }
-                val registered = records.count { it.registered }
-                val neighbors = records.size - registered
-                getString(
-                    R.string.collector_notification_cells_with_gps,
-                    registered,
-                    neighbors,
-                    acceptedLocation.accuracy.toInt(),
-                )
+
+                if (acceptedLocation == null) {
+                    getString(
+                        R.string.collector_notification_waiting_precise_gps,
+                        MAX_GPS_ACCURACY_METERS.toInt(),
+                    )
+                } else {
+                    val registered = records.count { it.registered }
+                    val neighbors = records.size - registered
+                    getString(
+                        R.string.collector_notification_cells_with_gps,
+                        registered,
+                        neighbors,
+                        acceptedLocation.accuracy.toInt(),
+                    )
+                }
             }
 
             else -> getString(R.string.collector_notification_unavailable)
@@ -154,12 +168,12 @@ class CellCollectorService : Service(), LocationListener {
     }
 
     private fun startGpsUpdates() {
+        if (gpsUpdatesRegistered) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             return
         }
         if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             latestPreciseLocation = null
-            return
         }
         locationManager.requestLocationUpdates(
             LocationManager.GPS_PROVIDER,
@@ -168,6 +182,7 @@ class CellCollectorService : Service(), LocationListener {
             this,
             Looper.getMainLooper(),
         )
+        gpsUpdatesRegistered = true
         locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             ?.takeIf(::isAcceptedPreciseGps)
             ?.takeIf { System.currentTimeMillis() - it.time <= MAX_GPS_FIX_AGE_MS }
@@ -226,7 +241,10 @@ class CellCollectorService : Service(), LocationListener {
         setCollectorEnabled(false)
         handler.removeCallbacks(collectRunnable)
         collectionScheduled = false
-        locationManager.removeUpdates(this)
+        if (gpsUpdatesRegistered) {
+            locationManager.removeUpdates(this)
+            gpsUpdatesRegistered = false
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         sendBroadcast(

@@ -16,7 +16,9 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.TextView
@@ -71,6 +73,10 @@ class MainActivity : AppCompatActivity() {
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var isFollowingLocation = true
+    private var trackingMapTouch = false
+    private var mapGestureReported = false
+    private var mapTouchDownX = 0f
+    private var mapTouchDownY = 0f
     private var permissionDialog: AlertDialog? = null
     private var pendingCollectorStart = false
     private var collectorReceiverRegistered = false
@@ -140,6 +146,55 @@ class MainActivity : AppCompatActivity() {
         renderCollectorState()
         renderSnapshot()
         startCollectorOnLaunch()
+    }
+
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (::towerMapView.isInitialized && towerMapScreen.visibility == View.VISIBLE) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    trackingMapTouch = isTouchInsideMap(event.rawX, event.rawY)
+                    mapGestureReported = false
+                    mapTouchDownX = event.rawX
+                    mapTouchDownY = event.rawY
+                }
+
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (trackingMapTouch && !mapGestureReported) {
+                        mapGestureReported = true
+                        setLocationFollowingEnabled(false, moveImmediately = false)
+                    }
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (trackingMapTouch && !mapGestureReported) {
+                        val deltaX = event.rawX - mapTouchDownX
+                        val deltaY = event.rawY - mapTouchDownY
+                        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+                        if (deltaX * deltaX + deltaY * deltaY >= touchSlop * touchSlop) {
+                            mapGestureReported = true
+                            setLocationFollowingEnabled(false, moveImmediately = false)
+                        }
+                    }
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    trackingMapTouch = false
+                    mapGestureReported = false
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun isTouchInsideMap(rawX: Float, rawY: Float): Boolean {
+        val location = IntArray(2)
+        towerMapView.getLocationOnScreen(location)
+        return rawX >= location[0] &&
+            rawX < location[0] + towerMapView.width &&
+            rawY >= location[1] &&
+            rawY < location[1] + towerMapView.height
     }
 
     override fun onStart() {
@@ -284,11 +339,6 @@ class MainActivity : AppCompatActivity() {
                 .target(LatLng(20.0, 0.0))
                 .zoom(2.0)
                 .build()
-            map.addOnCameraMoveStartedListener { reason ->
-                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
-                    setLocationFollowingEnabled(false, moveImmediately = false)
-                }
-            }
             map.setOnMarkerClickListener { marker ->
                 val estimate = towerByMarkerId[marker.id] ?: return@setOnMarkerClickListener false
                 showTowerDetails(estimate)

@@ -11,6 +11,7 @@ data class CellTowerRecord(
     val identityLines: List<String>,
     val signalLines: List<String>,
     val signalDbm: Int,
+    val persistable: Boolean,
 ) {
     fun title(): String {
         return buildString {
