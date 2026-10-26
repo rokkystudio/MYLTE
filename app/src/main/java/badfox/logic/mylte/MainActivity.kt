@@ -18,6 +18,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var networkSummaryText: TextView
     private lateinit var collectorStatusText: TextView
     private lateinit var collectorToggleButton: Button
+    private lateinit var myLocationButton: ImageButton
     private lateinit var towerMapView: MapView
     private lateinit var towerDetailsPanel: View
     private lateinit var towerDetailsTitle: TextView
@@ -68,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private val towerByMarkerId = mutableMapOf<Long, CellDatabase.TowerEstimate>()
 
     private var selectedScreen = Screen.NETWORK_MODE
+    private var isFollowingLocation = true
     private var permissionDialog: AlertDialog? = null
     private var pendingCollectorStart = false
     private var collectorReceiverRegistered = false
@@ -82,7 +85,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 CellCollectorService.ACTION_LOCATION_UPDATED -> {
-                    renderMyLocationMarker(centerMap = false)
+                    renderMyLocationMarker(centerMap = isFollowingLocation)
                 }
             }
         }
@@ -151,7 +154,7 @@ class MainActivity : AppCompatActivity() {
         renderCollectorState()
         renderSnapshot()
         renderTowerEstimates()
-        renderMyLocationMarker(centerMap = false)
+        renderMyLocationMarker(centerMap = isFollowingLocation)
     }
 
     override fun onPause() {
@@ -193,6 +196,8 @@ class MainActivity : AppCompatActivity() {
         networkSummaryText = findViewById(R.id.networkSummaryText)
         collectorStatusText = findViewById(R.id.collectorStatusText)
         collectorToggleButton = findViewById(R.id.collectorToggleButton)
+        myLocationButton = findViewById(R.id.myLocationButton)
+        myLocationButton.isSelected = isFollowingLocation
         towerMapView = findViewById(R.id.towerMapView)
         towerDetailsPanel = findViewById(R.id.towerDetailsPanel)
         towerDetailsTitle = findViewById(R.id.towerDetailsTitle)
@@ -208,8 +213,8 @@ class MainActivity : AppCompatActivity() {
                 requestCollectorStart()
             }
         }
-        findViewById<Button>(R.id.myLocationButton).setOnClickListener {
-            renderMyLocationMarker(centerMap = true)
+        myLocationButton.setOnClickListener {
+            setLocationFollowingEnabled(true, moveImmediately = true)
         }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener {
             openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS)
@@ -256,8 +261,8 @@ class MainActivity : AppCompatActivity() {
             renderScreen()
             renderSnapshot()
             if (screen == Screen.TOWER_MAP) {
+                setLocationFollowingEnabled(true, moveImmediately = true)
                 renderTowerEstimates()
-                renderMyLocationMarker(centerMap = false)
             }
         }
     }
@@ -279,6 +284,11 @@ class MainActivity : AppCompatActivity() {
                 .target(LatLng(20.0, 0.0))
                 .zoom(2.0)
                 .build()
+            map.addOnCameraMoveStartedListener { reason ->
+                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                    setLocationFollowingEnabled(false, moveImmediately = false)
+                }
+            }
             map.setOnMarkerClickListener { marker ->
                 val estimate = towerByMarkerId[marker.id] ?: return@setOnMarkerClickListener false
                 showTowerDetails(estimate)
@@ -292,12 +302,12 @@ class MainActivity : AppCompatActivity() {
             if (hasInternetConnection()) {
                 map.setStyle(MAP_STYLE_URL) {
                     renderTowerEstimates()
-                    renderMyLocationMarker(centerMap = false)
+                    renderMyLocationMarker(centerMap = isFollowingLocation)
                 }
             } else {
                 map.setStyle(Style.Builder().fromJson(OFFLINE_STYLE_JSON)) {
                     renderTowerEstimates()
-                    renderMyLocationMarker(centerMap = false)
+                    renderMyLocationMarker(centerMap = isFollowingLocation)
                 }
             }
         }
@@ -330,8 +340,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setLocationFollowingEnabled(enabled: Boolean, moveImmediately: Boolean) {
+        isFollowingLocation = enabled
+        myLocationButton.isSelected = enabled
+        if (enabled && moveImmediately) {
+            renderMyLocationMarker(centerMap = true, useFollowZoom = true)
+        }
+    }
+
     @Suppress("DEPRECATION")
-    private fun renderMyLocationMarker(centerMap: Boolean) {
+    private fun renderMyLocationMarker(
+        centerMap: Boolean,
+        useFollowZoom: Boolean = false,
+    ) {
         val map = towerMap ?: return
         if (map.style == null) return
         val location = GpsLocationStore.read(this)
@@ -353,13 +374,16 @@ class MainActivity : AppCompatActivity() {
         )
 
         if (centerMap) {
+            val currentZoom = map.cameraPosition.zoom
+            val targetZoom = if (useFollowZoom) FOLLOW_LOCATION_ZOOM else currentZoom
             map.animateCamera(
                 org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
                         .target(LatLng(location.latitude, location.longitude))
-                        .zoom(16.0)
+                        .zoom(targetZoom)
                         .build()
-                )
+                ),
+                LOCATION_CAMERA_ANIMATION_MS,
             )
         }
     }
@@ -573,6 +597,8 @@ class MainActivity : AppCompatActivity() {
         const val KEY_SELECTED_SCREEN = "selected_screen"
         const val MAP_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
         const val MAX_MAP_LOCATION_AGE_MS = 30_000L
+        const val FOLLOW_LOCATION_ZOOM = 16.0
+        const val LOCATION_CAMERA_ANIMATION_MS = 900
         const val STALE_TOWER_AGE_MS = 30L * 24L * 60L * 60L * 1000L
         const val OFFLINE_STYLE_JSON = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#e7e7e7"}}]}"""
     }
