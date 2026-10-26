@@ -10,7 +10,6 @@
     <string name="main_permissions_title">Разрешения</string>
     <string name="main_permissions_text">MYLTE нужны разрешения геолокации и состояния телефона, чтобы читать identity соты, уровень сигнала и соседние соты, которые отдаёт Android.</string>
     <string name="main_action_grant_permissions">Выдать разрешения</string>
-    <string name="main_action_refresh">Обновить данные сот</string>
     <string name="main_action_radio_info">RadioInfo</string>
     <string name="main_action_network_operator_settings">Выбор оператора</string>
     <string name="main_action_network_settings">Настройки сети</string>
@@ -31,4 +30,16 @@
         <item quantity="many">Записей на карте: %d</item>
         <item quantity="other">Записей на карте: %d</item>
     </plurals>
+    <string name="collector_section_title">Сбор данных сот</string>
+    <string name="collector_status_running">Сервис сбора данных работает в фоне.</string>
+    <string name="collector_status_stopped">Сервис сбора данных остановлен.</string>
+    <string name="collector_action_start">Запустить сбор</string>
+    <string name="collector_action_stop">Остановить сбор</string>
+    <string name="collector_channel_name">Сбор данных сот</string>
+    <string name="collector_channel_description">Периодический сбор параметров сотовой сети MYLTE.</string>
+    <string name="collector_notification_title">MYLTE — сбор данных сот</string>
+    <string name="collector_notification_starting">Запуск сбора сотовых данных…</string>
+    <string name="collector_notification_permissions">Ожидание разрешений для чтения данных сот.</string>
+    <string name="collector_notification_unavailable">Telephony service недоступен.</string>
+    <string name="collector_notification_cells">Подключено: %1$d · Соседних: %2$d</string>
 </resources>

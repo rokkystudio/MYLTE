@@ -113,6 +113,49 @@
                     android:padding="14dp">
 
                     <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:includeFontPadding="false"
+                        android:text="@string/collector_section_title"
+                        android:textColor="@color/text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/collectorStatusText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:includeFontPadding="false"
+                        android:text="@string/collector_status_stopped"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/collectorToggleButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="46dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/bg_button"
+                        android:backgroundTint="@null"
+                        android:fontFamily="sans"
+                        android:stateListAnimator="@null"
+                        android:text="@string/collector_action_start"
+                        android:textAllCaps="false"
+                        android:textColor="@color/action_button_text_color"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_card"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <TextView
                         android:id="@+id/statusText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -175,21 +218,6 @@
                     android:text="@string/main_map_no_coordinates"
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
-
-                <Button
-                    android:id="@+id/refreshButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="46dp"
-                    android:layout_marginTop="12dp"
-                    android:background="@drawable/bg_button"
-                    android:backgroundTint="@null"
-                    android:fontFamily="sans"
-                    android:stateListAnimator="@null"
-                    android:text="@string/main_action_refresh"
-                    android:textAllCaps="false"
-                    android:textColor="@color/action_button_text_color"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
             </LinearLayout>
 
             <ScrollView

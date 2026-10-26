@@ -10,7 +10,6 @@
     <string name="main_permissions_title">Permissions</string>
     <string name="main_permissions_text">MYLTE needs location and phone state permissions to read cell identity, signal level and neighboring cell data exposed by Android.</string>
     <string name="main_action_grant_permissions">Grant permissions</string>
-    <string name="main_action_refresh">Refresh cell data</string>
     <string name="main_action_radio_info">RadioInfo</string>
     <string name="main_action_network_operator_settings">Operator selection</string>
     <string name="main_action_network_settings">Network settings</string>
@@ -29,4 +28,16 @@
         <item quantity="one">Map records: %d</item>
         <item quantity="other">Map records: %d</item>
     </plurals>
+    <string name="collector_section_title">Cell data collection</string>
+    <string name="collector_status_running">Collection service is running in the background.</string>
+    <string name="collector_status_stopped">Collection service is stopped.</string>
+    <string name="collector_action_start">Start collection</string>
+    <string name="collector_action_stop">Stop collection</string>
+    <string name="collector_channel_name">Cell data collection</string>
+    <string name="collector_channel_description">Periodic cellular network measurements collected by MYLTE.</string>
+    <string name="collector_notification_title">MYLTE cell collector</string>
+    <string name="collector_notification_starting">Starting cellular data collection…</string>
+    <string name="collector_notification_permissions">Waiting for cellular permissions.</string>
+    <string name="collector_notification_unavailable">Telephony service is unavailable.</string>
+    <string name="collector_notification_cells">Connected: %1$d · Neighbor: %2$d</string>
 </resources>

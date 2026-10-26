@@ -2,8 +2,10 @@ package badfox.logic.mylte
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -26,7 +28,7 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 
 /**
- * Shows network mode entry points and cell tower map data exposed by Android telephony APIs.
+ * Shows network controls, cellular collector state, and the interactive tower map.
  */
 class MainActivity : AppCompatActivity() {
     private enum class Screen {
@@ -42,6 +44,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var towerMapScreen: View
     private lateinit var statusText: TextView
     private lateinit var networkSummaryText: TextView
+    private lateinit var collectorStatusText: TextView
+    private lateinit var collectorToggleButton: Button
     private lateinit var mapStatusText: TextView
     private lateinit var registeredCellsContainer: LinearLayout
     private lateinit var neighborCellsContainer: LinearLayout
@@ -49,11 +53,28 @@ class MainActivity : AppCompatActivity() {
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var permissionDialog: AlertDialog? = null
+    private var pendingCollectorStart = false
+    private var collectorReceiverRegistered = false
+
+    private val collectorReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            renderCollectorState()
+            if (intent?.action == CellCollectorService.ACTION_SNAPSHOT_COLLECTED) {
+                renderSnapshot()
+            }
+        }
+    }
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         renderSnapshot()
+        if (pendingCollectorStart && cellRepository.hasRequiredPermissions()) {
+            pendingCollectorStart = false
+            startCollector()
+        } else {
+            pendingCollectorStart = false
+        }
         if (selectedScreen == Screen.TOWER_MAP && !cellRepository.hasRequiredPermissions()) {
-            showTowerMapPermissionDialog()
+            showCellPermissionDialog()
         }
     }
 
@@ -81,20 +102,23 @@ class MainActivity : AppCompatActivity() {
         towerMapView.onCreate(savedInstanceState)
         configureMap()
         renderScreen()
+        renderCollectorState()
         renderSnapshot()
-        ensureTowerMapPermissions()
+        ensureCellPermissions()
     }
 
     override fun onStart() {
         super.onStart()
         towerMapView.onStart()
+        registerCollectorReceiver()
     }
 
     override fun onResume() {
         super.onResume()
         towerMapView.onResume()
+        renderCollectorState()
         renderSnapshot()
-        ensureTowerMapPermissions()
+        ensureCellPermissions()
     }
 
     override fun onPause() {
@@ -103,6 +127,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        unregisterCollectorReceiver()
         towerMapView.onStop()
         super.onStop()
     }
@@ -132,6 +157,8 @@ class MainActivity : AppCompatActivity() {
         towerMapScreen = findViewById(R.id.towerMapScreen)
         statusText = findViewById(R.id.statusText)
         networkSummaryText = findViewById(R.id.networkSummaryText)
+        collectorStatusText = findViewById(R.id.collectorStatusText)
+        collectorToggleButton = findViewById(R.id.collectorToggleButton)
         mapStatusText = findViewById(R.id.mapStatusText)
         registeredCellsContainer = findViewById(R.id.registeredCellsContainer)
         neighborCellsContainer = findViewById(R.id.neighborCellsContainer)
@@ -139,7 +166,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bindActions() {
-        findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshot() }
+        collectorToggleButton.setOnClickListener {
+            if (CellCollectorService.isEnabled(this)) {
+                CellCollectorService.stop(this)
+                renderCollectorState()
+            } else {
+                requestCollectorStart()
+            }
+        }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener { openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS) }
         findViewById<Button>(R.id.networkSettingsButton).setOnClickListener { openSettings(Settings.ACTION_WIRELESS_SETTINGS) }
         findViewById<Button>(R.id.radioInfoButton).setOnClickListener { openRadioInfo() }
@@ -178,7 +212,7 @@ class MainActivity : AppCompatActivity() {
             selectedScreen = screen
             renderScreen()
             renderSnapshot()
-            ensureTowerMapPermissions()
+            ensureCellPermissions()
         }
     }
 
@@ -201,13 +235,58 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun ensureTowerMapPermissions() {
+    private fun registerCollectorReceiver() {
+        if (collectorReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction(CellCollectorService.ACTION_SNAPSHOT_COLLECTED)
+            addAction(CellCollectorService.ACTION_STATE_CHANGED)
+        }
+        ContextCompat.registerReceiver(
+            this,
+            collectorReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        collectorReceiverRegistered = true
+    }
+
+    private fun unregisterCollectorReceiver() {
+        if (!collectorReceiverRegistered) return
+        unregisterReceiver(collectorReceiver)
+        collectorReceiverRegistered = false
+    }
+
+    private fun requestCollectorStart() {
+        if (cellRepository.hasRequiredPermissions()) {
+            startCollector()
+            return
+        }
+        pendingCollectorStart = true
+        requestCellPermissions()
+    }
+
+    private fun startCollector() {
+        CellCollectorService.start(this)
+        renderCollectorState()
+    }
+
+    private fun renderCollectorState() {
+        val enabled = CellCollectorService.isEnabled(this)
+        collectorStatusText.setText(
+            if (enabled) R.string.collector_status_running else R.string.collector_status_stopped
+        )
+        collectorToggleButton.setText(
+            if (enabled) R.string.collector_action_stop else R.string.collector_action_start
+        )
+    }
+
+    private fun ensureCellPermissions() {
         if (selectedScreen == Screen.TOWER_MAP && !cellRepository.hasRequiredPermissions()) {
-            showTowerMapPermissionDialog()
+            showCellPermissionDialog()
         }
     }
 
-    private fun showTowerMapPermissionDialog() {
+    private fun showCellPermissionDialog() {
         if (permissionDialog?.isShowing == true) return
         permissionDialog = AlertDialog.Builder(this)
             .setTitle(R.string.main_permissions_title)
@@ -218,13 +297,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestCellPermissions() {
-        permissionsLauncher.launch(
-            arrayOf(
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.READ_PHONE_STATE,
-            )
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.READ_PHONE_STATE,
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions += Manifest.permission.POST_NOTIFICATIONS
+        }
+        permissionsLauncher.launch(permissions.toTypedArray())
     }
 
     private fun renderSnapshot() {
