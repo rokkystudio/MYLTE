@@ -104,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         renderScreen()
         renderCollectorState()
         renderSnapshot()
+        startCollectorOnLaunch()
         ensureCellPermissions()
     }
 
@@ -254,6 +255,16 @@ class MainActivity : AppCompatActivity() {
         if (!collectorReceiverRegistered) return
         unregisterReceiver(collectorReceiver)
         collectorReceiverRegistered = false
+    }
+
+    /**
+     * Starts cellular collection when the application is launched.
+     *
+     * If telephony permissions are not available yet, collection starts immediately after
+     * the permission request is completed successfully.
+     */
+    private fun startCollectorOnLaunch() {
+        requestCollectorStart()
     }
 
     private fun requestCollectorStart() {
