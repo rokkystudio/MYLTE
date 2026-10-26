@@ -23,7 +23,6 @@ androidx-documentfile = { group = "androidx.documentfile", name = "documentfile"
 annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
 maplibre = { group = "org.maplibre.gl", name = "android-sdk", version.ref = "maplibre" }
 flags = { module = "badfox.logic.sharedapp:flags", version.ref = "sharedApp" }
-geo = { module = "com.rokkystudio.sharedapp:geo", version.ref = "sharedApp" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

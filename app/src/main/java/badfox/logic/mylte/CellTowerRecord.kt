@@ -1,4 +1,4 @@
-package com.rokkystudio.mylte
+package badfox.logic.mylte
 
 /**
  * Describes one cellular record exposed by Android Telephony APIs.

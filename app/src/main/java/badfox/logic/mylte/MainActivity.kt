@@ -1,4 +1,4 @@
-package com.rokkystudio.mylte
+package badfox.logic.mylte
 
 import android.Manifest
 import android.content.ActivityNotFoundException

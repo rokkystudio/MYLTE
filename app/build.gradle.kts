@@ -3,13 +3,13 @@ plugins {
 }
 
 android {
-    namespace = "com.rokkystudio.mylte"
+    namespace = "badfox.logic.mylte"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.rokkystudio.mylte"
+        applicationId = "badfox.logic.mylte"
         minSdk = 26
         targetSdk = 37
         versionCode = 13

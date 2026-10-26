@@ -1,4 +1,4 @@
-package com.rokkystudio.mylte
+package badfox.logic.mylte
 
 import android.content.Context
 import android.content.res.Configuration
