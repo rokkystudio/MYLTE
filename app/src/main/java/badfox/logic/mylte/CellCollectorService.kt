@@ -132,15 +132,14 @@ class CellCollectorService : Service(), LocationListener {
             snapshot is CellSnapshot.Available -> {
                 val records = snapshot.records
                 val acceptedLocation = location?.let(::Location)
-                databaseExecutor.execute {
-                    cellDatabase.touchObservedCells(records)
-                    if (acceptedLocation != null) {
+                if (acceptedLocation != null) {
+                    databaseExecutor.execute {
                         cellDatabase.insertMeasurements(records, acceptedLocation)
+                        sendBroadcast(
+                            Intent(ACTION_SNAPSHOT_COLLECTED)
+                                .setPackage(packageName)
+                        )
                     }
-                    sendBroadcast(
-                        Intent(ACTION_SNAPSHOT_COLLECTED)
-                            .setPackage(packageName)
-                    )
                 }
 
                 if (acceptedLocation == null) {

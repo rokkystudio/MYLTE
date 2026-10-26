@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -25,6 +26,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +40,8 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.Polygon
+import org.maplibre.android.annotations.PolygonOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -66,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var collectorStatusText: TextView
     private lateinit var collectorToggleButton: Button
     private lateinit var myLocationButton: ImageButton
+    private lateinit var connectedCellsLegend: LinearLayout
     private lateinit var towerMapView: MapView
     private lateinit var towerDetailsPanel: View
     private lateinit var towerDetailsTitle: TextView
@@ -74,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private var towerMap: MapLibreMap? = null
     private var userLocationMarker: Marker? = null
     private val towerMarkers = mutableListOf<Marker>()
+    private val coveragePolygons = mutableListOf<Polygon>()
     private val towerByMarkerId = mutableMapOf<Long, CellDatabase.TowerEstimate>()
 
     private var selectedScreen = Screen.NETWORK_MODE
@@ -107,6 +113,7 @@ class MainActivity : AppCompatActivity() {
                 CellCollectorService.ACTION_SNAPSHOT_COLLECTED -> {
                     renderSnapshot()
                     renderTowerEstimates()
+                    renderConnectedCellsLegend()
                 }
 
                 CellCollectorService.ACTION_LOCATION_UPDATED -> {
@@ -274,6 +281,7 @@ class MainActivity : AppCompatActivity() {
         collectorStatusText = findViewById(R.id.collectorStatusText)
         collectorToggleButton = findViewById(R.id.collectorToggleButton)
         myLocationButton = findViewById(R.id.myLocationButton)
+        connectedCellsLegend = findViewById(R.id.connectedCellsLegend)
         myLocationButton.isSelected = isFollowingLocation
         towerMapView = findViewById(R.id.towerMapView)
         towerDetailsPanel = findViewById(R.id.towerDetailsPanel)
@@ -341,6 +349,7 @@ class MainActivity : AppCompatActivity() {
                 hasFollowCentered = false
                 setLocationFollowingEnabled(true, moveImmediately = true)
                 renderTowerEstimates()
+                renderConnectedCellsLegend()
             }
         }
     }
@@ -391,26 +400,102 @@ class MainActivity : AppCompatActivity() {
         val map = towerMap ?: return
         if (map.style == null) return
 
+        coveragePolygons.forEach { map.removePolygon(it) }
+        coveragePolygons.clear()
         towerMarkers.forEach { map.removeMarker(it) }
         towerMarkers.clear()
         towerByMarkerId.clear()
 
-        val connectedCellKeys = currentConnectedCellKeys()
-        val now = System.currentTimeMillis()
+        cellDatabase.readCoverageCells().forEach { cell ->
+            val color = towerColor(cell.cellKey)
+            val alpha = coverageAlpha(cell.averageSignalDbm)
+            val polygon = map.addPolygon(
+                PolygonOptions()
+                    .add(
+                        LatLng(cell.south, cell.west),
+                        LatLng(cell.south, cell.east),
+                        LatLng(cell.north, cell.east),
+                        LatLng(cell.north, cell.west),
+                    )
+                    .fillColor(color)
+                    .strokeColor(Color.TRANSPARENT)
+                    .alpha(alpha)
+            )
+            coveragePolygons += polygon
+        }
+
         cellDatabase.readTowerEstimates().forEach { estimate ->
-            val markerColor = when {
-                estimate.cellKey in connectedCellKeys -> Color.rgb(35, 160, 80)
-                now - estimate.lastSeenAt >= STALE_TOWER_AGE_MS -> Color.rgb(210, 55, 55)
-                else -> Color.rgb(120, 120, 120)
-            }
             val marker = map.addMarker(
                 MarkerOptions()
                     .position(LatLng(estimate.latitude, estimate.longitude))
-                    .icon(createTowerMarkerIcon(markerColor))
+                    .icon(createTowerMarkerIcon(towerColor(estimate.cellKey)))
             )
             towerMarkers += marker
             towerByMarkerId[marker.id] = estimate
         }
+    }
+
+    private fun renderConnectedCellsLegend() {
+        connectedCellsLegend.removeAllViews()
+        val connected = when (val snapshot = cellRepository.readSnapshot()) {
+            is CellSnapshot.Available -> snapshot.records
+                .filter { it.registered && it.persistable }
+                .distinctBy { it.cellKey }
+
+            else -> emptyList()
+        }
+
+        connectedCellsLegend.visibility = if (connected.isEmpty()) View.GONE else View.VISIBLE
+        connected.forEach { record ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                if (connectedCellsLegend.childCount > 0) {
+                    setPadding(0, dp(6), 0, 0)
+                }
+            }
+            row.addView(
+                View(this).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(towerColor(record.cellKey))
+                    }
+                },
+                LinearLayout.LayoutParams(dp(12), dp(12)).apply {
+                    marginEnd = dp(8)
+                },
+            )
+            row.addView(
+                TextView(this).apply {
+                    text = buildString {
+                        append(record.radio)
+                        record.operator?.takeIf { it.isNotBlank() }?.let {
+                            append(" · ").append(it)
+                        }
+                        record.identityLines.firstOrNull()?.takeIf { it.isNotBlank() }?.let {
+                            append(" · ").append(it)
+                        }
+                    }
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    textSize = 12f
+                    includeFontPadding = false
+                }
+            )
+            connectedCellsLegend.addView(row)
+        }
+    }
+
+    private fun towerColor(cellKey: String): Int {
+        val index = Math.floorMod(cellKey.hashCode(), TOWER_COLOR_PALETTE.size)
+        return TOWER_COLOR_PALETTE[index]
+    }
+
+    private fun coverageAlpha(signalDbm: Double): Float {
+        val normalized = ((signalDbm - COVERAGE_SIGNAL_MIN_DBM) /
+            (COVERAGE_SIGNAL_MAX_DBM - COVERAGE_SIGNAL_MIN_DBM))
+            .coerceIn(0.0, 1.0)
+        return (COVERAGE_MIN_ALPHA +
+            normalized * (COVERAGE_MAX_ALPHA - COVERAGE_MIN_ALPHA)).toFloat()
     }
 
     private fun setLocationFollowingEnabled(enabled: Boolean, moveImmediately: Boolean) {
@@ -535,17 +620,6 @@ class MainActivity : AppCompatActivity() {
             System.currentTimeMillis() - location.time <= MAX_MAP_LOCATION_AGE_MS
     }
 
-    private fun currentConnectedCellKeys(): Set<String> {
-        return when (val snapshot = cellRepository.readSnapshot()) {
-            is CellSnapshot.Available -> snapshot.records
-                .asSequence()
-                .filter { it.registered }
-                .map { it.cellKey }
-                .toSet()
-
-            else -> emptySet()
-        }
-    }
 
     private fun createTowerMarkerIcon(color: Int) =
         IconFactory.getInstance(this).fromBitmap(
@@ -576,7 +650,6 @@ class MainActivity : AppCompatActivity() {
             R.string.map_tower_details,
             estimate.operator ?: getString(R.string.common_not_available),
             estimate.sampleCount,
-            estimate.radiusMeters,
             estimate.latitude,
             estimate.longitude,
             estimate.identityText,
@@ -740,6 +813,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
     private companion object {
         const val KEY_SELECTED_SCREEN = "selected_screen"
         const val MAP_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
@@ -747,7 +824,24 @@ class MainActivity : AppCompatActivity() {
         const val MAP_LOCATION_UPDATE_INTERVAL_MS = 1_000L
         const val FOLLOW_LOCATION_ZOOM = 17.5
         const val LOCATION_CAMERA_ANIMATION_MS = 1_500
-        const val STALE_TOWER_AGE_MS = 30L * 24L * 60L * 60L * 1000L
+        const val COVERAGE_SIGNAL_MIN_DBM = -120.0
+        const val COVERAGE_SIGNAL_MAX_DBM = -70.0
+        const val COVERAGE_MIN_ALPHA = 0.10
+        const val COVERAGE_MAX_ALPHA = 0.72
+        val TOWER_COLOR_PALETTE = intArrayOf(
+            Color.rgb(33, 150, 243),
+            Color.rgb(156, 39, 176),
+            Color.rgb(255, 152, 0),
+            Color.rgb(0, 150, 136),
+            Color.rgb(233, 30, 99),
+            Color.rgb(63, 81, 181),
+            Color.rgb(205, 220, 57),
+            Color.rgb(121, 85, 72),
+            Color.rgb(0, 188, 212),
+            Color.rgb(255, 87, 34),
+            Color.rgb(103, 58, 183),
+            Color.rgb(139, 195, 74),
+        )
         const val OFFLINE_STYLE_JSON = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#e7e7e7"}}]}"""
     }
 }
