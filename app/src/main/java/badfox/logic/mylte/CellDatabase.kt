@@ -14,8 +14,8 @@ import kotlin.math.sqrt
 /**
  * Stores precise GPS + cellular signal measurements and cached tower estimates.
  *
- * Measurements are never deleted because of age. A cell keeps up to 5,000 newest samples,
- * and old rows are removed only when a new sample for the same cell pushes it over that limit.
+ * Precise measurements are aggregated into 50-meter spatial cells. Repeated scans in one cell
+ * refine its signal statistics without giving that location additional spatial weight.
  */
 class CellDatabase(context: Context) : SQLiteOpenHelper(
     context,
@@ -39,23 +39,37 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE cell_measurements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cell_key TEXT NOT NULL,
-                radio TEXT NOT NULL,
-                operator TEXT,
-                identity_text TEXT NOT NULL,
-                registered INTEGER NOT NULL,
-                signal_dbm INTEGER NOT NULL,
+            CREATE TABLE cell_grid_scans (
+                grid_x INTEGER NOT NULL,
+                grid_y INTEGER NOT NULL,
                 latitude REAL NOT NULL,
                 longitude REAL NOT NULL,
-                gps_accuracy_m REAL NOT NULL,
-                recorded_at INTEGER NOT NULL
+                scan_count INTEGER NOT NULL,
+                last_scan_at INTEGER NOT NULL,
+                PRIMARY KEY(grid_x, grid_y)
             )
             """.trimIndent()
         )
         db.execSQL(
-            "CREATE INDEX idx_cell_measurements_key_time ON cell_measurements(cell_key, recorded_at DESC)"
+            """
+            CREATE TABLE cell_grid_stats (
+                cell_key TEXT NOT NULL,
+                grid_x INTEGER NOT NULL,
+                grid_y INTEGER NOT NULL,
+                radio TEXT NOT NULL,
+                operator TEXT,
+                identity_text TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                sample_count INTEGER NOT NULL,
+                signal_sum_dbm INTEGER NOT NULL,
+                signal_avg_dbm REAL NOT NULL,
+                signal_min_dbm INTEGER NOT NULL,
+                signal_max_dbm INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL,
+                PRIMARY KEY(cell_key, grid_x, grid_y)
+            )
+            """.trimIndent()
         )
         db.execSQL(
             """
@@ -82,6 +96,66 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         }
         if (oldVersion < 3) {
             deleteInvalidIdentityRows(db)
+        }
+        if (oldVersion < 4) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS cell_grid_scans (
+                    grid_x INTEGER NOT NULL,
+                    grid_y INTEGER NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    scan_count INTEGER NOT NULL,
+                    last_scan_at INTEGER NOT NULL,
+                    PRIMARY KEY(grid_x, grid_y)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS cell_grid_stats (
+                    cell_key TEXT NOT NULL,
+                    grid_x INTEGER NOT NULL,
+                    grid_y INTEGER NOT NULL,
+                    radio TEXT NOT NULL,
+                    operator TEXT,
+                    identity_text TEXT NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    signal_sum_dbm INTEGER NOT NULL,
+                    signal_avg_dbm REAL NOT NULL DEFAULT -200,
+                    signal_min_dbm INTEGER NOT NULL,
+                    signal_max_dbm INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL,
+                    PRIMARY KEY(cell_key, grid_x, grid_y)
+                )
+                """.trimIndent()
+            )
+            migrateLegacyMeasurementsToGrid(db)
+        }
+        if (oldVersion < 5) {
+            db.execSQL(
+                "ALTER TABLE cell_grid_stats ADD COLUMN signal_avg_dbm REAL NOT NULL DEFAULT -200"
+            )
+            db.execSQL(
+                """
+                UPDATE cell_grid_stats
+                SET signal_avg_dbm =
+                    CASE
+                        WHEN sample_count > 0 THEN signal_sum_dbm * 1.0 / sample_count
+                        ELSE -200
+                    END,
+                    sample_count = MIN(sample_count, $MAX_GRID_CONFIDENCE)
+                """.trimIndent()
+            )
+            db.execSQL(
+                "UPDATE cell_grid_scans SET scan_count = MIN(scan_count, $MAX_GRID_CONFIDENCE)"
+            )
+        }
+        if (oldVersion < 6) {
+            normalizeGridCoordinates(db)
+            db.execSQL("DROP TABLE IF EXISTS cell_measurements")
         }
     }
 
@@ -117,10 +191,11 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     /**
-     * Adds one scan worth of precise-GPS cellular measurements in a single transaction.
+     * Aggregates one precise-GPS scan into a fixed 50-meter spatial grid.
      *
-     * Per-cell rolling retention is applied only after new rows are inserted. Each affected tower
-     * estimate is then recalculated once, regardless of how many records the scan contained.
+     * Repeated scans from the same place increase confidence inside that grid cell but do not add
+     * extra spatial weight when the tower position is estimated. A separate grid scan counter keeps
+     * the context that scanning happened even when a particular tower was not reported by Android.
      */
     fun insertMeasurements(
         records: List<CellTowerRecord>,
@@ -130,39 +205,94 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         val acceptedRecords = records.filter {
             it.persistable && it.signalDbm in MIN_VALID_DBM..MAX_VALID_DBM
         }
-        if (acceptedRecords.isEmpty()) return
+        val grid = gridCell(location.latitude, location.longitude)
 
         writableDatabase.beginTransaction()
         try {
+            upsertGridScan(grid, location, recordedAt)
             acceptedRecords.forEach { record ->
-                val values = ContentValues().apply {
-                    put("cell_key", record.cellKey)
-                    put("radio", record.radio)
-                    put("operator", record.operator)
-                    put("identity_text", record.identityLines.joinToString("\n"))
-                    put("registered", if (record.registered) 1 else 0)
-                    put("signal_dbm", record.signalDbm)
-                    put("latitude", location.latitude)
-                    put("longitude", location.longitude)
-                    put("gps_accuracy_m", location.accuracy.toDouble())
-                    put("recorded_at", recordedAt)
-                }
-                writableDatabase.insertOrThrow("cell_measurements", null, values)
+                upsertGridStat(record, grid, location, recordedAt)
             }
 
             acceptedRecords
                 .asSequence()
                 .map { it.cellKey }
                 .distinct()
-                .forEach { cellKey ->
-                    pruneMeasurements(cellKey)
-                    updateTowerEstimate(cellKey)
-                }
+                .forEach(::updateTowerEstimate)
 
             writableDatabase.setTransactionSuccessful()
         } finally {
             writableDatabase.endTransaction()
         }
+    }
+
+    private data class GridCell(
+        val x: Long,
+        val y: Long,
+    )
+
+    private fun upsertGridScan(grid: GridCell, location: Location, recordedAt: Long) {
+        val center = gridCenter(grid)
+        writableDatabase.execSQL(
+            """
+            INSERT INTO cell_grid_scans (
+                grid_x, grid_y, latitude, longitude, scan_count, last_scan_at
+            ) VALUES (?, ?, ?, ?, 1, ?)
+            ON CONFLICT(grid_x, grid_y) DO UPDATE SET
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                scan_count = MIN(cell_grid_scans.scan_count + 1, $MAX_GRID_CONFIDENCE),
+                last_scan_at = excluded.last_scan_at
+            """.trimIndent(),
+            arrayOf(grid.x, grid.y, center.first, center.second, recordedAt),
+        )
+    }
+
+    private fun upsertGridStat(
+        record: CellTowerRecord,
+        grid: GridCell,
+        location: Location,
+        recordedAt: Long,
+    ) {
+        val center = gridCenter(grid)
+        writableDatabase.execSQL(
+            """
+            INSERT INTO cell_grid_stats (
+                cell_key, grid_x, grid_y, radio, operator, identity_text,
+                latitude, longitude, sample_count, signal_sum_dbm, signal_avg_dbm,
+                signal_min_dbm, signal_max_dbm, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+            ON CONFLICT(cell_key, grid_x, grid_y) DO UPDATE SET
+                radio = excluded.radio,
+                operator = excluded.operator,
+                identity_text = excluded.identity_text,
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                sample_count = MIN(cell_grid_stats.sample_count + 1, $MAX_GRID_CONFIDENCE),
+                signal_sum_dbm = excluded.signal_sum_dbm,
+                signal_avg_dbm =
+                    cell_grid_stats.signal_avg_dbm * (1.0 - $GRID_SIGNAL_EMA_ALPHA) +
+                    excluded.signal_avg_dbm * $GRID_SIGNAL_EMA_ALPHA,
+                signal_min_dbm = MIN(cell_grid_stats.signal_min_dbm, excluded.signal_min_dbm),
+                signal_max_dbm = MAX(cell_grid_stats.signal_max_dbm, excluded.signal_max_dbm),
+                last_seen_at = excluded.last_seen_at
+            """.trimIndent(),
+            arrayOf(
+                record.cellKey,
+                grid.x,
+                grid.y,
+                record.radio,
+                record.operator,
+                record.identityLines.joinToString("\n"),
+                center.first,
+                center.second,
+                record.signalDbm,
+                record.signalDbm.toDouble(),
+                record.signalDbm,
+                record.signalDbm,
+                recordedAt,
+            ),
+        )
     }
 
     /**
@@ -208,75 +338,65 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         return result
     }
 
-    private fun pruneMeasurements(cellKey: String) {
-        writableDatabase.execSQL(
-            """
-            DELETE FROM cell_measurements
-            WHERE cell_key = ?
-              AND id NOT IN (
-                  SELECT id
-                  FROM cell_measurements
-                  WHERE cell_key = ?
-                  ORDER BY recorded_at DESC, id DESC
-                  LIMIT $MAX_MEASUREMENTS_PER_CELL
-              )
-            """.trimIndent(),
-            arrayOf(cellKey, cellKey),
-        )
-    }
-
-    private fun updateTowerEstimate(cellKey: String) {
-        data class Sample(
+    private fun updateTowerEstimate(
+        cellKey: String,
+        database: SQLiteDatabase = writableDatabase,
+    ) {
+        data class GridSample(
             val radio: String,
             val operator: String?,
             val identityText: String,
-            val signalDbm: Int,
+            val averageSignalDbm: Double,
+            val strongestSignalDbm: Int,
             val latitude: Double,
             val longitude: Double,
-            val accuracyMeters: Double,
-            val recordedAt: Long,
+            val sampleCount: Int,
+            val lastSeenAt: Long,
         )
 
-        val samples = mutableListOf<Sample>()
-        readableDatabase.query(
-            "cell_measurements",
+        val samples = mutableListOf<GridSample>()
+        database.query(
+            "cell_grid_stats",
             arrayOf(
                 "radio",
                 "operator",
                 "identity_text",
-                "signal_dbm",
+                "signal_avg_dbm",
+                "sample_count",
+                "signal_max_dbm",
                 "latitude",
                 "longitude",
-                "gps_accuracy_m",
-                "recorded_at",
+                "last_seen_at",
             ),
             "cell_key = ?",
             arrayOf(cellKey),
             null,
             null,
-            "recorded_at ASC, id ASC",
+            "last_seen_at ASC",
         ).use { cursor ->
             while (cursor.moveToNext()) {
-                samples += Sample(
+                val sampleCount = cursor.getInt(4)
+                samples += GridSample(
                     radio = cursor.getString(0),
                     operator = cursor.getString(1),
                     identityText = cursor.getString(2),
-                    signalDbm = cursor.getInt(3),
-                    latitude = cursor.getDouble(4),
-                    longitude = cursor.getDouble(5),
-                    accuracyMeters = cursor.getDouble(6),
-                    recordedAt = cursor.getLong(7),
+                    averageSignalDbm = cursor.getDouble(3),
+                    sampleCount = sampleCount,
+                    strongestSignalDbm = cursor.getInt(5),
+                    latitude = cursor.getDouble(6),
+                    longitude = cursor.getDouble(7),
+                    lastSeenAt = cursor.getLong(8),
                 )
             }
         }
         if (samples.isEmpty()) return
 
-        val strongestDbm = samples.maxOf { it.signalDbm }
+        val strongestDbm = samples.maxOf { it.averageSignalDbm }
         var weightSum = 0.0
         var latitudeSum = 0.0
         var longitudeSum = 0.0
         samples.forEach { sample ->
-            val weight = 10.0.pow((sample.signalDbm - strongestDbm) / 10.0)
+            val weight = 10.0.pow((sample.averageSignalDbm - strongestDbm) / 10.0)
             weightSum += weight
             latitudeSum += sample.latitude * weight
             longitudeSum += sample.longitude * weight
@@ -286,16 +406,12 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
 
         var radiusSquaredSum = 0.0
         samples.forEach { sample ->
-            val weight = 10.0.pow((sample.signalDbm - strongestDbm) / 10.0)
+            val weight = 10.0.pow((sample.averageSignalDbm - strongestDbm) / 10.0)
             val distance = distanceMeters(latitude, longitude, sample.latitude, sample.longitude)
-            radiusSquaredSum += weight * (
-                distance * distance +
-                    sample.accuracyMeters * sample.accuracyMeters
-                )
+            radiusSquaredSum += weight * distance * distance
         }
-        val radiusMeters = sqrt(radiusSquaredSum / weightSum)
-        val newest = samples.last()
 
+        val newest = samples.maxBy { it.lastSeenAt }
         val values = ContentValues().apply {
             put("cell_key", cellKey)
             put("radio", newest.radio)
@@ -303,17 +419,144 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             put("identity_text", newest.identityText)
             put("latitude", latitude)
             put("longitude", longitude)
-            put("radius_m", radiusMeters)
-            put("sample_count", samples.size)
-            put("last_seen_at", newest.recordedAt)
+            put("radius_m", sqrt(radiusSquaredSum / weightSum))
+            put("sample_count", samples.sumOf { it.sampleCount })
+            put("last_seen_at", newest.lastSeenAt)
             put("updated_at", System.currentTimeMillis())
         }
-        writableDatabase.insertWithOnConflict(
+        database.insertWithOnConflict(
             "tower_estimates",
             null,
             values,
             SQLiteDatabase.CONFLICT_REPLACE,
         )
+    }
+
+    private fun gridCell(latitude: Double, longitude: Double): GridCell {
+        val earthRadiusMeters = 6_378_137.0
+        val xMeters = earthRadiusMeters * Math.toRadians(longitude)
+        val limitedLatitude = latitude.coerceIn(-85.05112878, 85.05112878)
+        val yMeters = earthRadiusMeters *
+            kotlin.math.ln(
+                kotlin.math.tan(
+                    Math.PI / 4.0 + Math.toRadians(limitedLatitude) / 2.0
+                )
+            )
+        return GridCell(
+            x = kotlin.math.floor(xMeters / GRID_SIZE_METERS).toLong(),
+            y = kotlin.math.floor(yMeters / GRID_SIZE_METERS).toLong(),
+        )
+    }
+
+    private fun migrateLegacyMeasurementsToGrid(db: SQLiteDatabase) {
+        var lastScanAt = Long.MIN_VALUE
+        db.query(
+            "cell_measurements",
+            arrayOf(
+                "cell_key", "radio", "operator", "identity_text", "signal_dbm",
+                "latitude", "longitude", "recorded_at",
+            ),
+            null, null, null, null,
+            "recorded_at ASC, id ASC",
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val latitude = cursor.getDouble(5)
+                val longitude = cursor.getDouble(6)
+                val recordedAt = cursor.getLong(7)
+                val grid = gridCell(latitude, longitude)
+
+                if (recordedAt != lastScanAt) {
+                    db.execSQL(
+                        """
+                        INSERT INTO cell_grid_scans (
+                            grid_x, grid_y, latitude, longitude, scan_count, last_scan_at
+                        ) VALUES (?, ?, ?, ?, 1, ?)
+                        ON CONFLICT(grid_x, grid_y) DO UPDATE SET
+                            scan_count = cell_grid_scans.scan_count + 1,
+                            last_scan_at = MAX(cell_grid_scans.last_scan_at, excluded.last_scan_at)
+                        """.trimIndent(),
+                        arrayOf(grid.x, grid.y, latitude, longitude, recordedAt),
+                    )
+                    lastScanAt = recordedAt
+                }
+
+                val signalDbm = cursor.getInt(4)
+                db.execSQL(
+                    """
+                    INSERT INTO cell_grid_stats (
+                        cell_key, grid_x, grid_y, radio, operator, identity_text,
+                        latitude, longitude, sample_count, signal_sum_dbm, signal_avg_dbm,
+                        signal_min_dbm, signal_max_dbm, last_seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    ON CONFLICT(cell_key, grid_x, grid_y) DO UPDATE SET
+                        sample_count = MIN(cell_grid_stats.sample_count + 1, $MAX_GRID_CONFIDENCE),
+                        signal_sum_dbm = excluded.signal_sum_dbm,
+                        signal_avg_dbm =
+                            cell_grid_stats.signal_avg_dbm * (1.0 - $GRID_SIGNAL_EMA_ALPHA) +
+                            excluded.signal_avg_dbm * $GRID_SIGNAL_EMA_ALPHA,
+                        signal_min_dbm = MIN(cell_grid_stats.signal_min_dbm, excluded.signal_min_dbm),
+                        signal_max_dbm = MAX(cell_grid_stats.signal_max_dbm, excluded.signal_max_dbm),
+                        last_seen_at = MAX(cell_grid_stats.last_seen_at, excluded.last_seen_at)
+                    """.trimIndent(),
+                    arrayOf(
+                        cursor.getString(0), grid.x, grid.y, cursor.getString(1),
+                        cursor.getString(2), cursor.getString(3), latitude, longitude,
+                        signalDbm, signalDbm.toDouble(), signalDbm, signalDbm, recordedAt,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun gridCenter(grid: GridCell): Pair<Double, Double> {
+        val earthRadiusMeters = 6_378_137.0
+        val xMeters = (grid.x + 0.5) * GRID_SIZE_METERS
+        val yMeters = (grid.y + 0.5) * GRID_SIZE_METERS
+        val longitude = Math.toDegrees(xMeters / earthRadiusMeters)
+        val latitude = Math.toDegrees(
+            2.0 * kotlin.math.atan(kotlin.math.exp(yMeters / earthRadiusMeters)) -
+                Math.PI / 2.0
+        )
+        return latitude to longitude
+    }
+
+    private fun normalizeGridCoordinates(db: SQLiteDatabase) {
+        db.query(
+            "cell_grid_scans",
+            arrayOf("grid_x", "grid_y"),
+            null, null, null, null, null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val grid = GridCell(cursor.getLong(0), cursor.getLong(1))
+                val center = gridCenter(grid)
+                val values = ContentValues().apply {
+                    put("latitude", center.first)
+                    put("longitude", center.second)
+                }
+                db.update(
+                    "cell_grid_scans",
+                    values,
+                    "grid_x = ? AND grid_y = ?",
+                    arrayOf(grid.x.toString(), grid.y.toString()),
+                )
+                db.update(
+                    "cell_grid_stats",
+                    values,
+                    "grid_x = ? AND grid_y = ?",
+                    arrayOf(grid.x.toString(), grid.y.toString()),
+                )
+            }
+        }
+
+        db.query(
+            "cell_grid_stats",
+            arrayOf("DISTINCT cell_key"),
+            null, null, null, null, null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                updateTowerEstimate(cursor.getString(0), db)
+            }
+        }
     }
 
     private fun deleteInvalidIdentityRows(db: SQLiteDatabase) {
@@ -322,8 +565,19 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             OR cell_key LIKE '%:2147483647:%'
             OR cell_key LIKE '%:9223372036854775807%'
         """.trimIndent()
-        db.delete("cell_measurements", invalidWhere, null)
+        if (tableExists(db, "cell_measurements")) {
+            db.delete("cell_measurements", invalidWhere, null)
+        }
         db.delete("tower_estimates", invalidWhere, null)
+    }
+
+    private fun tableExists(db: SQLiteDatabase, tableName: String): Boolean {
+        db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+            arrayOf(tableName),
+        ).use { cursor ->
+            return cursor.moveToFirst()
+        }
     }
 
     private fun distanceMeters(
@@ -345,8 +599,10 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
 
     private companion object {
         const val DATABASE_NAME = "mylte.db"
-        const val DATABASE_VERSION = 3
-        const val MAX_MEASUREMENTS_PER_CELL = 5_000
+        const val DATABASE_VERSION = 6
+        const val GRID_SIZE_METERS = 50.0
+        const val MAX_GRID_CONFIDENCE = 20
+        const val GRID_SIGNAL_EMA_ALPHA = 0.2
         const val MIN_VALID_DBM = -200
         const val MAX_VALID_DBM = -1
     }

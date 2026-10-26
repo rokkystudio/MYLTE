@@ -11,10 +11,14 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
@@ -52,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var uiSettings: UiSettings
     private lateinit var cellRepository: CellRepository
     private lateinit var cellDatabase: CellDatabase
+    private lateinit var mapLocationManager: LocationManager
     private lateinit var neoTopBar: NeoTopBarView
     private lateinit var bottomNavigator: NeoScreenNavigatorView
     private lateinit var networkModeScreen: View
@@ -73,6 +78,9 @@ class MainActivity : AppCompatActivity() {
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var isFollowingLocation = true
+    private var hasFollowCentered = false
+    private var latestMapLocation: Location? = null
+    private var mapLocationUpdatesRegistered = false
     private var trackingMapTouch = false
     private var mapGestureReported = false
     private var mapTouchDownX = 0f
@@ -80,6 +88,17 @@ class MainActivity : AppCompatActivity() {
     private var permissionDialog: AlertDialog? = null
     private var pendingCollectorStart = false
     private var collectorReceiverRegistered = false
+
+    private val mapLocationListener = LocationListener { location ->
+        if (!isUsableMapLocation(location)) return@LocationListener
+        latestMapLocation = Location(location)
+        if (selectedScreen == Screen.TOWER_MAP) {
+            renderMyLocationMarker(
+                centerMap = isFollowingLocation,
+                useFollowZoom = isFollowingLocation && !hasFollowCentered,
+            )
+        }
+    }
 
     private val collectorReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -133,6 +152,7 @@ class MainActivity : AppCompatActivity() {
         uiSettings = UiSettings(this)
         cellRepository = CellRepository(applicationContext)
         cellDatabase = CellDatabase(applicationContext)
+        mapLocationManager = getSystemService(LocationManager::class.java)
         selectedScreen = savedInstanceState?.getString(KEY_SELECTED_SCREEN)
             ?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
             ?: Screen.NETWORK_MODE
@@ -206,6 +226,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         towerMapView.onResume()
+        startMapLocationUpdates()
         renderCollectorState()
         renderSnapshot()
         renderTowerEstimates()
@@ -213,6 +234,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        stopMapLocationUpdates()
         towerMapView.onPause()
         super.onPause()
     }
@@ -316,6 +338,7 @@ class MainActivity : AppCompatActivity() {
             renderScreen()
             renderSnapshot()
             if (screen == Screen.TOWER_MAP) {
+                hasFollowCentered = false
                 setLocationFollowingEnabled(true, moveImmediately = true)
                 renderTowerEstimates()
             }
@@ -394,6 +417,7 @@ class MainActivity : AppCompatActivity() {
         isFollowingLocation = enabled
         myLocationButton.isSelected = enabled
         if (enabled && moveImmediately) {
+            hasFollowCentered = false
             renderMyLocationMarker(centerMap = true, useFollowZoom = true)
         }
     }
@@ -405,9 +429,9 @@ class MainActivity : AppCompatActivity() {
     ) {
         val map = towerMap ?: return
         if (map.style == null) return
-        val location = GpsLocationStore.read(this)
-            ?.takeIf { it.accuracy <= CellCollectorService.MAX_GPS_ACCURACY_METERS }
-            ?.takeIf { System.currentTimeMillis() - it.time <= MAX_MAP_LOCATION_AGE_MS }
+        val location = latestMapLocation
+            ?.takeIf(::isUsableMapLocation)
+            ?: readBestLastKnownMapLocation()
 
         if (location == null) {
             if (centerMap) {
@@ -435,7 +459,80 @@ class MainActivity : AppCompatActivity() {
                 ),
                 LOCATION_CAMERA_ANIMATION_MS,
             )
+            if (useFollowZoom) {
+                hasFollowCentered = true
+            }
         }
+    }
+
+    private fun startMapLocationUpdates() {
+        val fine = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) return
+
+        latestMapLocation = readBestLastKnownMapLocation() ?: latestMapLocation
+        if (mapLocationUpdatesRegistered) return
+
+        val providers = buildList {
+            if (fine) add(LocationManager.GPS_PROVIDER)
+            add(LocationManager.NETWORK_PROVIDER)
+            add(LocationManager.PASSIVE_PROVIDER)
+        }.distinct()
+
+        providers.forEach { provider ->
+            runCatching {
+                mapLocationManager.requestLocationUpdates(
+                    provider,
+                    MAP_LOCATION_UPDATE_INTERVAL_MS,
+                    0f,
+                    mapLocationListener,
+                    Looper.getMainLooper(),
+                )
+            }
+        }
+        mapLocationUpdatesRegistered = true
+    }
+
+    private fun stopMapLocationUpdates() {
+        if (!mapLocationUpdatesRegistered) return
+        mapLocationManager.removeUpdates(mapLocationListener)
+        mapLocationUpdatesRegistered = false
+    }
+
+    private fun readBestLastKnownMapLocation(): Location? {
+        val fine = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) return null
+
+        return mapLocationManager.allProviders
+            .asSequence()
+            .mapNotNull { provider ->
+                runCatching { mapLocationManager.getLastKnownLocation(provider) }.getOrNull()
+            }
+            .filter(::isUsableMapLocation)
+            .maxWithOrNull(
+                compareBy<Location> { it.time }
+                    .thenBy { -it.accuracy }
+            )
+            ?.let(::Location)
+    }
+
+    private fun isUsableMapLocation(location: Location): Boolean {
+        return location.latitude.isFinite() &&
+            location.longitude.isFinite() &&
+            System.currentTimeMillis() - location.time <= MAX_MAP_LOCATION_AGE_MS
     }
 
     private fun currentConnectedCellKeys(): Set<String> {
@@ -646,9 +743,10 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val KEY_SELECTED_SCREEN = "selected_screen"
         const val MAP_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
-        const val MAX_MAP_LOCATION_AGE_MS = 30_000L
-        const val FOLLOW_LOCATION_ZOOM = 16.0
-        const val LOCATION_CAMERA_ANIMATION_MS = 900
+        const val MAX_MAP_LOCATION_AGE_MS = 10L * 60L * 1000L
+        const val MAP_LOCATION_UPDATE_INTERVAL_MS = 1_000L
+        const val FOLLOW_LOCATION_ZOOM = 17.5
+        const val LOCATION_CAMERA_ANIMATION_MS = 1_500
         const val STALE_TOWER_AGE_MS = 30L * 24L * 60L * 60L * 1000L
         const val OFFLINE_STYLE_JSON = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#e7e7e7"}}]}"""
     }
