@@ -99,10 +99,7 @@ class MainActivity : AppCompatActivity() {
         if (!isUsableMapLocation(location)) return@LocationListener
         latestMapLocation = Location(location)
         if (selectedScreen == Screen.TOWER_MAP) {
-            renderMyLocationMarker(
-                centerMap = isFollowingLocation,
-                useFollowZoom = isFollowingLocation && !hasFollowCentered,
-            )
+            renderMyLocationMarker(centerMap = isFollowingLocation)
         }
     }
 
@@ -503,15 +500,12 @@ class MainActivity : AppCompatActivity() {
         myLocationButton.isSelected = enabled
         if (enabled && moveImmediately) {
             hasFollowCentered = false
-            renderMyLocationMarker(centerMap = true, useFollowZoom = true)
+            renderMyLocationMarker(centerMap = true)
         }
     }
 
     @Suppress("DEPRECATION")
-    private fun renderMyLocationMarker(
-        centerMap: Boolean,
-        useFollowZoom: Boolean = false,
-    ) {
+    private fun renderMyLocationMarker(centerMap: Boolean) {
         val map = towerMap ?: return
         if (map.style == null) return
         val location = latestMapLocation
@@ -533,8 +527,12 @@ class MainActivity : AppCompatActivity() {
         )
 
         if (centerMap) {
-            val currentZoom = map.cameraPosition.zoom
-            val targetZoom = if (useFollowZoom) FOLLOW_LOCATION_ZOOM else currentZoom
+            val shouldApplyFollowZoom = isFollowingLocation && !hasFollowCentered
+            val targetZoom = if (shouldApplyFollowZoom) {
+                FOLLOW_LOCATION_ZOOM
+            } else {
+                map.cameraPosition.zoom
+            }
             map.animateCamera(
                 org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
@@ -544,7 +542,7 @@ class MainActivity : AppCompatActivity() {
                 ),
                 LOCATION_CAMERA_ANIMATION_MS,
             )
-            if (useFollowZoom) {
+            if (shouldApplyFollowZoom) {
                 hasFollowCentered = true
             }
         }
