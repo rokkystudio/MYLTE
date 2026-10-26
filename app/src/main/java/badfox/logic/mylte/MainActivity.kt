@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var isFollowingLocation = true
     private var isNorthUp = true
     private var hasFollowCentered = false
+    private val movementHeadingTracker = MovementHeadingTracker()
     private var lastMovementBearingDegrees: Float? = null
     private var latestMapLocation: Location? = null
     private var mapLocationUpdatesRegistered = false
@@ -102,8 +103,8 @@ class MainActivity : AppCompatActivity() {
     private val mapLocationListener = LocationListener { location ->
         if (!isUsableMapLocation(location)) return@LocationListener
         latestMapLocation = Location(location)
-        if (location.hasBearing()) {
-            lastMovementBearingDegrees = location.bearing
+        movementHeadingTracker.update(location)?.let { bearing ->
+            lastMovementBearingDegrees = bearing
         }
         if (selectedScreen == Screen.TOWER_MAP) {
             renderMyLocationMarker(centerMap = isFollowingLocation)
@@ -308,7 +309,10 @@ class MainActivity : AppCompatActivity() {
             setLocationFollowingEnabled(true, moveImmediately = true)
         }
         northUpButton.setOnClickListener {
-            setNorthUpEnabled(!isNorthUp)
+            setNorthUpEnabled(
+                enabled = !isNorthUp,
+                animateToNorth = !isNorthUp,
+            )
         }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener {
             openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS)
@@ -385,11 +389,15 @@ class MainActivity : AppCompatActivity() {
                 object : MapLibreMap.OnRotateListener {
                     override fun onRotateBegin(detector: RotateGestureDetector) {
                         if (isNorthUp) {
-                            setNorthUpEnabled(false)
+                            setNorthUpEnabled(
+                                enabled = false,
+                                animateToNorth = false,
+                            )
                         }
                     }
 
                     override fun onRotate(detector: RotateGestureDetector) {
+                        renderMyLocationMarker(centerMap = false)
                     }
 
                     override fun onRotateEnd(detector: RotateGestureDetector) {
@@ -523,14 +531,44 @@ class MainActivity : AppCompatActivity() {
             normalized * (COVERAGE_MAX_ALPHA - COVERAGE_MIN_ALPHA)).toFloat()
     }
 
-    private fun setNorthUpEnabled(enabled: Boolean) {
+    private fun setNorthUpEnabled(
+        enabled: Boolean,
+        animateToNorth: Boolean,
+    ) {
         isNorthUp = enabled
         northUpButton.isSelected = enabled
         northUpButton.contentDescription = getString(
             if (enabled) R.string.map_action_north_up else R.string.map_action_heading_up
         )
         towerMap?.uiSettings?.setRotateGesturesEnabled(true)
-        renderMyLocationMarker(centerMap = isFollowingLocation)
+
+        if (enabled && animateToNorth) {
+            animateMapBearingToNorth()
+        } else {
+            renderMyLocationMarker(centerMap = false)
+        }
+    }
+
+    private fun animateMapBearingToNorth() {
+        val map = towerMap ?: return
+        val cameraPosition = map.cameraPosition
+        map.animateCamera(
+            org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder(cameraPosition)
+                    .bearing(0.0)
+                    .build()
+            ),
+            NORTH_UP_ANIMATION_MS,
+            object : MapLibreMap.CancelableCallback {
+                override fun onFinish() {
+                    renderMyLocationMarker(centerMap = false)
+                }
+
+                override fun onCancel() {
+                    renderMyLocationMarker(centerMap = false)
+                }
+            },
+        )
     }
 
     private fun setLocationFollowingEnabled(enabled: Boolean, moveImmediately: Boolean) {
@@ -557,8 +595,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (location.hasBearing()) {
-            lastMovementBearingDegrees = location.bearing
+        movementHeadingTracker.update(location)?.let { bearing ->
+            lastMovementBearingDegrees = bearing
         }
 
         val movementBearing = lastMovementBearingDegrees
@@ -930,6 +968,7 @@ class MainActivity : AppCompatActivity() {
         const val MAP_LOCATION_UPDATE_INTERVAL_MS = 1_000L
         const val FOLLOW_LOCATION_ZOOM = 17.5
         const val LOCATION_CAMERA_ANIMATION_MS = 1_500
+        const val NORTH_UP_ANIMATION_MS = 700
         const val COVERAGE_SIGNAL_MIN_DBM = -120.0
         const val COVERAGE_SIGNAL_MAX_DBM = -70.0
         const val COVERAGE_MIN_ALPHA = 0.10
