@@ -46,9 +46,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var networkSummaryText: TextView
     private lateinit var collectorStatusText: TextView
     private lateinit var collectorToggleButton: Button
-    private lateinit var mapStatusText: TextView
-    private lateinit var registeredCellsContainer: LinearLayout
-    private lateinit var neighborCellsContainer: LinearLayout
     private lateinit var towerMapView: MapView
 
     private var selectedScreen = Screen.NETWORK_MODE
@@ -171,9 +168,6 @@ class MainActivity : AppCompatActivity() {
         networkSummaryText = findViewById(R.id.networkSummaryText)
         collectorStatusText = findViewById(R.id.collectorStatusText)
         collectorToggleButton = findViewById(R.id.collectorToggleButton)
-        mapStatusText = findViewById(R.id.mapStatusText)
-        registeredCellsContainer = findViewById(R.id.registeredCellsContainer)
-        neighborCellsContainer = findViewById(R.id.neighborCellsContainer)
         towerMapView = findViewById(R.id.towerMapView)
     }
 
@@ -365,17 +359,11 @@ class MainActivity : AppCompatActivity() {
     private fun renderPermissionRequired() {
         statusText.setText(R.string.main_status_permission_required)
         networkSummaryText.text = getString(R.string.main_permissions_text)
-        renderCells(emptyList(), registeredCellsContainer)
-        renderCells(emptyList(), neighborCellsContainer)
-        renderMap(emptyList())
     }
 
     private fun renderUnavailable() {
         statusText.setText(R.string.main_status_no_telephony)
         networkSummaryText.text = ""
-        renderCells(emptyList(), registeredCellsContainer)
-        renderCells(emptyList(), neighborCellsContainer)
-        renderMap(emptyList())
     }
 
     private fun renderAvailable(snapshot: CellSnapshot.Available) {
@@ -389,60 +377,8 @@ class MainActivity : AppCompatActivity() {
             snapshot.networkType,
             snapshot.phoneType,
         )
-        renderCells(snapshot.records.filter { it.registered }, registeredCellsContainer)
-        renderCells(snapshot.records.filter { !it.registered }, neighborCellsContainer)
-        renderMap(snapshot.records)
     }
 
-    private fun renderCells(records: List<CellTowerRecord>, container: LinearLayout) {
-        container.removeAllViews()
-        if (records.isEmpty()) {
-            container.addView(createEmptyText())
-            return
-        }
-        records.forEach { record ->
-            container.addView(createCellView(record))
-        }
-    }
-
-    private fun createEmptyText(): TextView {
-        return TextView(this).apply {
-            text = getString(R.string.main_no_cells)
-            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-            textSize = 13f
-            includeFontPadding = false
-        }
-    }
-
-    private fun createCellView(record: CellTowerRecord): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(12))
-            addView(TextView(context).apply {
-                text = record.title()
-                setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-                textSize = 15f
-                includeFontPadding = false
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            })
-            addView(TextView(context).apply {
-                text = record.details()
-                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
-                textSize = 12f
-                includeFontPadding = false
-                setPadding(0, dp(6), 0, 0)
-            })
-        }
-    }
-
-    private fun renderMap(records: List<CellTowerRecord>) {
-        val coordinateRecords = records.filter { it.hasCoordinates() }
-        mapStatusText.text = if (coordinateRecords.isEmpty()) {
-            getString(R.string.main_map_no_coordinates)
-        } else {
-            resources.getQuantityString(R.plurals.main_map_records, coordinateRecords.size, coordinateRecords.size)
-        }
-    }
 
     private fun openRadioInfo() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
