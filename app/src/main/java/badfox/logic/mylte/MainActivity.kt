@@ -19,6 +19,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
@@ -106,6 +107,15 @@ class MainActivity : AppCompatActivity() {
     private var permissionDialog: AlertDialog? = null
     private var pendingCollectorStart = false
     private var collectorReceiverRegistered = false
+    private val uiRefreshHandler = Handler(Looper.getMainLooper())
+    private val signalUiRefresh = object : Runnable {
+        override fun run() {
+            if (isCoverageListVisible) {
+                renderConnectedCellsLegend()
+                uiRefreshHandler.postDelayed(this, SIGNAL_UI_REFRESH_INTERVAL_MS)
+            }
+        }
+    }
 
     private val mapLocationListener = LocationListener { location ->
         if (!isUsableMapLocation(location)) return@LocationListener
@@ -268,10 +278,12 @@ class MainActivity : AppCompatActivity() {
         renderSnapshot()
         renderTowerEstimates()
         renderConnectedCellsLegend()
+        restartSignalUiRefresh()
         renderMyLocationMarker(centerMap = isFollowingLocation)
     }
 
     override fun onPause() {
+        stopSignalUiRefresh()
         stopMapLocationUpdates()
         towerMapView.onPause()
         super.onPause()
@@ -675,14 +687,6 @@ class MainActivity : AppCompatActivity() {
                 visibility = if (item.connected) View.VISIBLE else View.INVISIBLE
             }
             statusColumn.addView(
-                ImageView(this).apply {
-                    setImageResource(R.drawable.ic_antenna)
-                    setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
-                    contentDescription = getString(R.string.map_coverage_connected)
-                },
-                LinearLayout.LayoutParams(dp(22), dp(22)),
-            )
-            statusColumn.addView(
                 TextView(this).apply {
                     text = getString(R.string.map_coverage_connected)
                     setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
@@ -705,6 +709,17 @@ class MainActivity : AppCompatActivity() {
             row.addView(
                 statusColumn,
                 LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
+            )
+            row.addView(
+                ImageView(this).apply {
+                    setImageResource(R.drawable.ic_antenna)
+                    setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    contentDescription = getString(R.string.map_coverage_connected)
+                    visibility = if (item.connected) View.VISIBLE else View.INVISIBLE
+                },
+                LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+                    marginStart = dp(4)
+                },
             )
 
             connectedCellsLegend.addView(row)
@@ -760,7 +775,21 @@ class MainActivity : AppCompatActivity() {
         if (visible) {
             towerDetailsPanel.visibility = View.GONE
             renderConnectedCellsLegend()
+            restartSignalUiRefresh()
+        } else {
+            stopSignalUiRefresh()
         }
+    }
+
+    private fun restartSignalUiRefresh() {
+        stopSignalUiRefresh()
+        if (isCoverageListVisible) {
+            uiRefreshHandler.postDelayed(signalUiRefresh, SIGNAL_UI_REFRESH_INTERVAL_MS)
+        }
+    }
+
+    private fun stopSignalUiRefresh() {
+        uiRefreshHandler.removeCallbacks(signalUiRefresh)
     }
 
     private fun currentConnectedCellKeys(): Set<String> {
@@ -1235,6 +1264,7 @@ class MainActivity : AppCompatActivity() {
         const val FOLLOW_LOCATION_ZOOM = 17.5
         const val LOCATION_CAMERA_ANIMATION_MS = 1_500
         const val NORTH_UP_ANIMATION_MS = 700
+        const val SIGNAL_UI_REFRESH_INTERVAL_MS = 1_000L
         const val COVERAGE_SIGNAL_MIN_DBM = -120.0
         const val COVERAGE_SIGNAL_MAX_DBM = -70.0
         const val COVERAGE_MIN_ALPHA = 0.10
