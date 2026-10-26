@@ -200,6 +200,19 @@ class MainActivity : AppCompatActivity() {
         renderCollectorState()
         renderSnapshot()
         startCollectorOnLaunch()
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (selectedScreen == Screen.COVERAGE_LIST) {
+                        setCoverageListVisible(false)
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            }
+        )
     }
 
 
