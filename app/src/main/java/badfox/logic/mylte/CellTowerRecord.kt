@@ -4,19 +4,19 @@ package badfox.logic.mylte
  * Describes one cellular record exposed by Android Telephony APIs.
  */
 data class CellTowerRecord(
+    val cellKey: String,
     val radio: String,
     val registered: Boolean,
     val operator: String?,
     val identityLines: List<String>,
     val signalLines: List<String>,
-    val latitude: Double? = null,
-    val longitude: Double? = null,
+    val signalDbm: Int,
 ) {
     fun title(): String {
         return buildString {
             append(radio)
-            if (registered) append(" В· connected") else append(" В· neighbor")
-            operator?.takeIf { it.isNotBlank() }?.let { append(" В· ").append(it) }
+            if (registered) append(" · connected") else append(" · neighbor")
+            operator?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
         }
     }
 
@@ -25,6 +25,4 @@ data class CellTowerRecord(
             .filter { it.isNotBlank() }
             .joinToString(separator = "\n")
     }
-
-    fun hasCoordinates(): Boolean = latitude != null && longitude != null
 }

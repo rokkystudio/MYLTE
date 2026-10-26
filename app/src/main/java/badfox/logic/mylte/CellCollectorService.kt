@@ -1,5 +1,6 @@
 package badfox.logic.mylte
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,21 +8,33 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import java.util.concurrent.Executors
 
 /**
- * Periodically reads cellular network data while running as a foreground service.
+ * Collects cellular signal measurements paired only with accepted precise GPS fixes.
  *
- * The service keeps an ongoing notification visible, updates it after every collection cycle,
- * and broadcasts collection events so the activity can refresh the currently displayed snapshot.
+ * The service accepts fixes from GPS_PROVIDER with reported accuracy no worse than 20 meters
+ * and no older than 30 seconds. Accepted signal + GPS samples are stored in SQLite and used
+ * to refresh cached tower coordinate/radius estimates.
  */
-class CellCollectorService : Service() {
+class CellCollectorService : Service(), LocationListener {
     private lateinit var cellRepository: CellRepository
+    private lateinit var cellDatabase: CellDatabase
+    private lateinit var locationManager: LocationManager
     private val handler = Handler(Looper.getMainLooper())
+    private val databaseExecutor = Executors.newSingleThreadExecutor()
     private var collectionScheduled = false
+    private var latestPreciseLocation: Location? = null
 
     private val collectRunnable = object : Runnable {
         override fun run() {
@@ -33,7 +46,10 @@ class CellCollectorService : Service() {
     override fun onCreate() {
         super.onCreate()
         cellRepository = CellRepository(applicationContext)
+        cellDatabase = CellDatabase(applicationContext)
+        locationManager = getSystemService(LocationManager::class.java)
         createNotificationChannel()
+        startGpsUpdates()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -44,6 +60,7 @@ class CellCollectorService : Service() {
 
         setCollectorEnabled(true)
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.collector_notification_starting)))
+        startGpsUpdates()
         scheduleCollection()
         return START_STICKY
     }
@@ -51,11 +68,37 @@ class CellCollectorService : Service() {
     override fun onDestroy() {
         handler.removeCallbacks(collectRunnable)
         collectionScheduled = false
+        locationManager.removeUpdates(this)
+        databaseExecutor.shutdownNow()
+        cellDatabase.close()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
+    }
+
+    override fun onLocationChanged(location: Location) {
+        if (!isAcceptedPreciseGps(location)) return
+        latestPreciseLocation = Location(location)
+        GpsLocationStore.save(applicationContext, location)
+        sendBroadcast(
+            Intent(ACTION_LOCATION_UPDATED)
+                .setPackage(packageName)
+        )
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+    }
+
+    override fun onProviderEnabled(provider: String) {
+    }
+
+    override fun onProviderDisabled(provider: String) {
+        if (provider == LocationManager.GPS_PROVIDER) {
+            latestPreciseLocation = null
+        }
     }
 
     private fun scheduleCollection() {
@@ -67,23 +110,77 @@ class CellCollectorService : Service() {
 
     private fun collectSnapshot() {
         val snapshot = cellRepository.readSnapshot()
-        val notificationText = when (snapshot) {
-            CellSnapshot.PermissionRequired -> getString(R.string.collector_notification_permissions)
-            CellSnapshot.Unavailable -> getString(R.string.collector_notification_unavailable)
-            is CellSnapshot.Available -> {
-                val registered = snapshot.records.count { it.registered }
-                val neighbors = snapshot.records.size - registered
-                getString(R.string.collector_notification_cells, registered, neighbors)
+        val location = latestPreciseLocation
+            ?.takeIf(::isAcceptedPreciseGps)
+            ?.takeIf { System.currentTimeMillis() - it.time <= MAX_GPS_FIX_AGE_MS }
+
+        val notificationText = when {
+            snapshot == CellSnapshot.PermissionRequired ->
+                getString(R.string.collector_notification_permissions)
+
+            snapshot == CellSnapshot.Unavailable ->
+                getString(R.string.collector_notification_unavailable)
+
+            location == null ->
+                getString(R.string.collector_notification_waiting_precise_gps, MAX_GPS_ACCURACY_METERS.toInt())
+
+            snapshot is CellSnapshot.Available -> {
+                val acceptedLocation = Location(location)
+                val records = snapshot.records
+                databaseExecutor.execute {
+                    records.forEach { record ->
+                        cellDatabase.insertMeasurement(record, acceptedLocation)
+                    }
+                    sendBroadcast(
+                        Intent(ACTION_SNAPSHOT_COLLECTED)
+                            .setPackage(packageName)
+                    )
+                }
+                val registered = records.count { it.registered }
+                val neighbors = records.size - registered
+                getString(
+                    R.string.collector_notification_cells_with_gps,
+                    registered,
+                    neighbors,
+                    acceptedLocation.accuracy.toInt(),
+                )
             }
+
+            else -> getString(R.string.collector_notification_unavailable)
         }
 
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification(notificationText))
+    }
 
-        sendBroadcast(
-            Intent(ACTION_SNAPSHOT_COLLECTED)
-                .setPackage(packageName)
+    private fun startGpsUpdates() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            latestPreciseLocation = null
+            return
+        }
+        locationManager.requestLocationUpdates(
+            LocationManager.GPS_PROVIDER,
+            GPS_UPDATE_INTERVAL_MS,
+            0f,
+            this,
+            Looper.getMainLooper(),
         )
+        locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            ?.takeIf(::isAcceptedPreciseGps)
+            ?.takeIf { System.currentTimeMillis() - it.time <= MAX_GPS_FIX_AGE_MS }
+            ?.let {
+                latestPreciseLocation = Location(it)
+                GpsLocationStore.save(applicationContext, it)
+            }
+    }
+
+    private fun isAcceptedPreciseGps(location: Location): Boolean {
+        return location.provider == LocationManager.GPS_PROVIDER &&
+            location.hasAccuracy() &&
+            location.accuracy <= MAX_GPS_ACCURACY_METERS
     }
 
     private fun buildNotification(text: String): Notification {
@@ -129,6 +226,7 @@ class CellCollectorService : Service() {
         setCollectorEnabled(false)
         handler.removeCallbacks(collectRunnable)
         collectionScheduled = false
+        locationManager.removeUpdates(this)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         sendBroadcast(
@@ -152,6 +250,7 @@ class CellCollectorService : Service() {
     companion object {
         const val ACTION_SNAPSHOT_COLLECTED = "badfox.logic.mylte.action.SNAPSHOT_COLLECTED"
         const val ACTION_STATE_CHANGED = "badfox.logic.mylte.action.COLLECTOR_STATE_CHANGED"
+        const val ACTION_LOCATION_UPDATED = "badfox.logic.mylte.action.LOCATION_UPDATED"
 
         private const val ACTION_START = "badfox.logic.mylte.action.START_COLLECTOR"
         private const val ACTION_STOP = "badfox.logic.mylte.action.STOP_COLLECTOR"
@@ -160,12 +259,15 @@ class CellCollectorService : Service() {
         private const val NOTIFICATION_CHANNEL_ID = "cell_collector"
         private const val NOTIFICATION_ID = 1001
         private const val COLLECTION_INTERVAL_MS = 15_000L
+        private const val GPS_UPDATE_INTERVAL_MS = 1_000L
+        private const val MAX_GPS_FIX_AGE_MS = 30_000L
+        const val MAX_GPS_ACCURACY_METERS = 20f
 
         /**
          * Starts the foreground cellular collector.
          */
         fun start(context: Context) {
-            androidx.core.content.ContextCompat.startForegroundService(
+            ContextCompat.startForegroundService(
                 context,
                 Intent(context, CellCollectorService::class.java)
                     .setAction(ACTION_START),
@@ -173,7 +275,7 @@ class CellCollectorService : Service() {
         }
 
         /**
-         * Stops the foreground cellular collector.
+         * Disables the foreground cellular collector.
          */
         fun stop(context: Context) {
             context.startService(

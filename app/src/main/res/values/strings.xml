@@ -32,7 +32,7 @@
     <string name="collector_status_running">Collection service is running in the background.</string>
     <string name="collector_status_stopped">Collection service is stopped.</string>
     <string name="collector_action_start">Start collection</string>
-    <string name="collector_action_stop">Stop collection</string>
+    <string name="collector_action_stop">DISABLE</string>
     <string name="collector_channel_name">Cell data collection</string>
     <string name="collector_channel_description">Periodic cellular network measurements collected by MYLTE.</string>
     <string name="collector_notification_title">MYLTE cell collector</string>
@@ -43,4 +43,10 @@
     <string name="collector_notification_permission_title">Notifications are required</string>
     <string name="collector_notification_permission_text">Allow MYLTE notifications so the foreground collection service remains visible in the notification shade.</string>
     <string name="collector_notification_permission_settings">Open notification settings</string>
+    <string name="collector_notification_waiting_precise_gps">Waiting for precise GPS (accuracy ≤ %1$d m).</string>
+    <string name="collector_notification_cells_with_gps">Connected: %1$d · Neighbor: %2$d · GPS ±%3$d m</string>
+    <string name="map_action_my_location">My location</string>
+    <string name="map_location_unavailable">No recent precise GPS fix is available.</string>
+    <string name="map_tower_title">%1$s tower</string>
+    <string name="map_tower_details">Operator: %1$s\nSamples: %2$d\nEstimated radius: %3$.0f m\nCoordinates: %4$.6f, %5$.6f\n\n%6$s</string>
 </resources>

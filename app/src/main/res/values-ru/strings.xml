@@ -34,7 +34,7 @@
     <string name="collector_status_running">Сервис сбора данных работает в фоне.</string>
     <string name="collector_status_stopped">Сервис сбора данных остановлен.</string>
     <string name="collector_action_start">Запустить сбор</string>
-    <string name="collector_action_stop">Остановить сбор</string>
+    <string name="collector_action_stop">ОТКЛЮЧИТЬ</string>
     <string name="collector_channel_name">Сбор данных сот</string>
     <string name="collector_channel_description">Периодический сбор параметров сотовой сети MYLTE.</string>
     <string name="collector_notification_title">MYLTE — сбор данных сот</string>
@@ -45,4 +45,10 @@
     <string name="collector_notification_permission_title">Нужны уведомления</string>
     <string name="collector_notification_permission_text">Разрешите уведомления MYLTE, чтобы foreground-сервис сбора данных был виден в шторке.</string>
     <string name="collector_notification_permission_settings">Открыть настройки уведомлений</string>
+    <string name="collector_notification_waiting_precise_gps">Ожидание точного GPS (точность ≤ %1$d м).</string>
+    <string name="collector_notification_cells_with_gps">Подключено: %1$d · Соседних: %2$d · GPS ±%3$d м</string>
+    <string name="map_action_my_location">Моё местоположение</string>
+    <string name="map_location_unavailable">Нет свежей точки точного GPS.</string>
+    <string name="map_tower_title">Вышка %1$s</string>
+    <string name="map_tower_details">Оператор: %1$s\nИзмерений: %2$d\nРасчётный радиус: %3$.0f м\nКоординаты: %4$.6f, %5$.6f\n\n%6$s</string>
 </resources>

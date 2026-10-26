@@ -26,7 +26,7 @@ class CellRepository(private val context: Context) {
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val phone = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        return (fine || coarse) && phone
+        return fine && phone
     }
 
     @SuppressLint("MissingPermission")
@@ -61,6 +61,7 @@ class CellRepository(private val context: Context) {
         val identity = cellInfo.cellIdentity
         val signal = cellInfo.cellSignalStrength
         return CellTowerRecord(
+            cellKey = listOf("LTE", identity.mccString, identity.mncString, identity.tac, identity.ci).joinToString(":"),
             radio = "LTE",
             registered = cellInfo.isRegistered,
             operator = operator(identity.mccString, identity.mncString),
@@ -76,12 +77,15 @@ class CellRepository(private val context: Context) {
                 "RSRQ: ${signal.rsrq} dB",
                 "RSSNR: ${signal.rssnr}",
             ),
+            signalDbm = signal.dbm,
         )
     }
 
     private fun gsmRecord(cellInfo: CellInfoGsm): CellTowerRecord {
         val identity = cellInfo.cellIdentity
+        val signal = cellInfo.cellSignalStrength
         return CellTowerRecord(
+            cellKey = listOf("GSM", identity.mccString, identity.mncString, identity.lac, identity.cid).joinToString(":"),
             radio = "GSM",
             registered = cellInfo.isRegistered,
             operator = operator(identity.mccString, identity.mncString),
@@ -91,13 +95,16 @@ class CellRepository(private val context: Context) {
                 "ARFCN: ${identity.arfcn}",
                 "BSIC: ${identity.bsic}",
             ),
-            signalLines = signalLines(cellInfo.cellSignalStrength),
+            signalLines = signalLines(signal),
+            signalDbm = signal.dbm,
         )
     }
 
     private fun wcdmaRecord(cellInfo: CellInfoWcdma): CellTowerRecord {
         val identity = cellInfo.cellIdentity
+        val signal = cellInfo.cellSignalStrength
         return CellTowerRecord(
+            cellKey = listOf("WCDMA", identity.mccString, identity.mncString, identity.lac, identity.cid).joinToString(":"),
             radio = "WCDMA",
             registered = cellInfo.isRegistered,
             operator = operator(identity.mccString, identity.mncString),
@@ -107,13 +114,16 @@ class CellRepository(private val context: Context) {
                 "PSC: ${identity.psc}",
                 "UARFCN: ${identity.uarfcn}",
             ),
-            signalLines = signalLines(cellInfo.cellSignalStrength),
+            signalLines = signalLines(signal),
+            signalDbm = signal.dbm,
         )
     }
 
     private fun cdmaRecord(cellInfo: CellInfoCdma): CellTowerRecord {
         val identity = cellInfo.cellIdentity
+        val signal = cellInfo.cellSignalStrength
         return CellTowerRecord(
+            cellKey = listOf("CDMA", identity.systemId, identity.networkId, identity.basestationId).joinToString(":"),
             radio = "CDMA",
             registered = cellInfo.isRegistered,
             operator = null,
@@ -124,13 +134,16 @@ class CellRepository(private val context: Context) {
                 "Latitude: ${identity.latitude}",
                 "Longitude: ${identity.longitude}",
             ),
-            signalLines = signalLines(cellInfo.cellSignalStrength),
+            signalLines = signalLines(signal),
+            signalDbm = signal.dbm,
         )
     }
 
     private fun tdscdmaRecord(cellInfo: CellInfoTdscdma): CellTowerRecord {
         val identity = cellInfo.cellIdentity
+        val signal = cellInfo.cellSignalStrength
         return CellTowerRecord(
+            cellKey = listOf("TD-SCDMA", identity.mccString, identity.mncString, identity.lac, identity.cid).joinToString(":"),
             radio = "TD-SCDMA",
             registered = cellInfo.isRegistered,
             operator = operator(identity.mccString, identity.mncString),
@@ -140,13 +153,16 @@ class CellRepository(private val context: Context) {
                 "CPID: ${identity.cpid}",
                 "UARFCN: ${identity.uarfcn}",
             ),
-            signalLines = signalLines(cellInfo.cellSignalStrength),
+            signalLines = signalLines(signal),
+            signalDbm = signal.dbm,
         )
     }
 
     private fun nrRecord(cellInfo: CellInfoNr): CellTowerRecord {
         val identity = cellInfo.cellIdentity as? android.telephony.CellIdentityNr
+        val signal = cellInfo.cellSignalStrength
         return CellTowerRecord(
+            cellKey = listOf("NR", identity?.mccString, identity?.mncString, identity?.tac, identity?.nci).joinToString(":"),
             radio = "NR",
             registered = cellInfo.isRegistered,
             operator = operator(identity?.mccString, identity?.mncString),
@@ -157,7 +173,8 @@ class CellRepository(private val context: Context) {
                 "NRARFCN: ${identity?.nrarfcn}",
                 "Bands: ${formatBands(identity?.bands)}",
             ),
-            signalLines = signalLines(cellInfo.cellSignalStrength),
+            signalLines = signalLines(signal),
+            signalDbm = signal.dbm,
         )
     }
 
