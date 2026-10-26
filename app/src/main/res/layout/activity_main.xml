@@ -6,7 +6,7 @@
     android:background="@color/background"
     android:orientation="vertical">
 
-    <com.rokkystudio.sharedapp.neoui.NeoTopBarView
+    <badfox.logic.neoui.NeoTopBarView
         android:id="@+id/neoTopBar"
         android:layout_width="match_parent"
         android:layout_height="80dp" />
@@ -249,7 +249,7 @@
         </FrameLayout>
     </FrameLayout>
 
-    <com.rokkystudio.sharedapp.neoui.NeoScreenNavigatorView
+    <badfox.logic.neoui.NeoScreenNavigatorView
         android:id="@+id/bottomNavigator"
         android:layout_width="match_parent"
         android:layout_height="70dp" />
