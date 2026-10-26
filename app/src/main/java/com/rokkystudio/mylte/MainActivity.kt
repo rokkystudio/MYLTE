@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
-import android.webkit.WebView
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -21,6 +20,10 @@ import androidx.core.content.ContextCompat
 import badfox.logic.neoui.NeoScreenItem
 import badfox.logic.neoui.NeoScreenNavigatorView
 import badfox.logic.neoui.NeoTopBarView
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
 
 /**
  * Shows network mode entry points and cell tower map data exposed by Android telephony APIs.
@@ -33,8 +36,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var uiSettings: UiSettings
     private lateinit var cellRepository: CellRepository
-    private val mapRenderer = TowerMapRenderer()
-
     private lateinit var neoTopBar: NeoTopBarView
     private lateinit var bottomNavigator: NeoScreenNavigatorView
     private lateinit var networkModeScreen: View
@@ -44,7 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mapStatusText: TextView
     private lateinit var registeredCellsContainer: LinearLayout
     private lateinit var neighborCellsContainer: LinearLayout
-    private lateinit var towerMapView: WebView
+    private lateinit var towerMapView: MapView
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var permissionDialog: AlertDialog? = null
@@ -65,6 +66,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
         uiSettings = UiSettings(this)
@@ -76,26 +78,50 @@ class MainActivity : AppCompatActivity() {
         bindActions()
         renderTopBar()
         renderBottomNavigator()
+        towerMapView.onCreate(savedInstanceState)
         configureMap()
         renderScreen()
         renderSnapshot()
         ensureTowerMapPermissions()
     }
 
+    override fun onStart() {
+        super.onStart()
+        towerMapView.onStart()
+    }
+
     override fun onResume() {
         super.onResume()
+        towerMapView.onResume()
         renderSnapshot()
         ensureTowerMapPermissions()
+    }
+
+    override fun onPause() {
+        towerMapView.onPause()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        towerMapView.onStop()
+        super.onStop()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        towerMapView.onLowMemory()
     }
 
     override fun onDestroy() {
         permissionDialog?.dismiss()
         permissionDialog = null
+        towerMapView.onDestroy()
         super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(KEY_SELECTED_SCREEN, selectedScreen.name)
+        towerMapView.onSaveInstanceState(outState)
         super.onSaveInstanceState(outState)
     }
 
@@ -162,9 +188,17 @@ class MainActivity : AppCompatActivity() {
         bottomNavigator.select(selectedScreen)
     }
 
+    /**
+     * Initializes the interactive MapLibre map with the Maptoolkit Summer style.
+     */
     private fun configureMap() {
-        towerMapView.settings.javaScriptEnabled = true
-        towerMapView.settings.domStorageEnabled = true
+        towerMapView.getMapAsync { map ->
+            map.setStyle(MAP_STYLE_URL)
+            map.cameraPosition = CameraPosition.Builder()
+                .target(LatLng(20.0, 0.0))
+                .zoom(2.0)
+                .build()
+        }
     }
 
     private fun ensureTowerMapPermissions() {
@@ -282,13 +316,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             resources.getQuantityString(R.plurals.main_map_records, coordinateRecords.size, coordinateRecords.size)
         }
-        towerMapView.loadDataWithBaseURL(
-            "https://tile.openstreetmap.org/",
-            mapRenderer.render(coordinateRecords),
-            "text/html",
-            "UTF-8",
-            null,
-        )
     }
 
     private fun openRadioInfo() {
@@ -323,5 +350,6 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val KEY_SELECTED_SCREEN = "selected_screen"
+        const val MAP_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
     }
 }

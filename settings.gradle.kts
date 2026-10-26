@@ -25,9 +25,7 @@ dependencyResolutionManagement {
 rootProject.name = "MYLTE"
 include(":app")
 include(":flags")
-include(":geo")
 include(":neoui")
 
 project(":flags").projectDir = file("../SHARED-APP/flags")
-project(":geo").projectDir = file("../SHARED-APP/geo")
 project(":neoui").projectDir = file("../SHARED-APP/neoui")
