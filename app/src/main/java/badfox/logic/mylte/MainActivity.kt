@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private enum class Screen {
         NETWORK_MODE,
         TOWER_MAP,
+        COVERAGE_LIST,
     }
 
     private lateinit var uiSettings: UiSettings
@@ -90,6 +91,9 @@ class MainActivity : AppCompatActivity() {
     private val coveragePolygons = mutableListOf<Polygon>()
     private val towerByMarkerId = mutableMapOf<Long, CellDatabase.TowerEstimate>()
     private val hiddenCoverageCellKeys = mutableSetOf<String>()
+    private val connectedSignalTextByCellKey = mutableMapOf<String, TextView>()
+    private val connectedSignalIconByCellKey = mutableMapOf<String, ImageView>()
+    private var renderedConnectedCellKeys = emptySet<String>()
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var isFollowingLocation = true
@@ -111,7 +115,7 @@ class MainActivity : AppCompatActivity() {
     private val signalUiRefresh = object : Runnable {
         override fun run() {
             if (isCoverageListVisible) {
-                renderConnectedCellsLegend()
+                refreshConnectedSignalUi()
                 uiRefreshHandler.postDelayed(this, SIGNAL_UI_REFRESH_INTERVAL_MS)
             }
         }
@@ -185,6 +189,7 @@ class MainActivity : AppCompatActivity() {
         selectedScreen = savedInstanceState?.getString(KEY_SELECTED_SCREEN)
             ?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
             ?: Screen.NETWORK_MODE
+        isCoverageListVisible = selectedScreen == Screen.COVERAGE_LIST
         bindViews()
         bindActions()
         renderTopBar()
@@ -402,7 +407,11 @@ class MainActivity : AppCompatActivity() {
                     iconResId = R.drawable.ic_nav_tower_map,
                 ),
             ),
-            selectedValue = selectedScreen,
+            selectedValue = if (selectedScreen == Screen.COVERAGE_LIST) {
+                Screen.TOWER_MAP
+            } else {
+                selectedScreen
+            },
             placement = NeoScreenNavigatorView.Placement.BOTTOM,
         ) { screen ->
             selectedScreen = screen
@@ -418,9 +427,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderScreen() {
-        networkModeScreen.visibility = if (selectedScreen == Screen.NETWORK_MODE) View.VISIBLE else View.GONE
-        towerMapScreen.visibility = if (selectedScreen == Screen.TOWER_MAP) View.VISIBLE else View.GONE
-        bottomNavigator.select(selectedScreen)
+        networkModeScreen.visibility =
+            if (selectedScreen == Screen.NETWORK_MODE) View.VISIBLE else View.GONE
+        towerMapScreen.visibility =
+            if (selectedScreen == Screen.TOWER_MAP) View.VISIBLE else View.GONE
+        coverageListPanel.visibility =
+            if (selectedScreen == Screen.COVERAGE_LIST) View.VISIBLE else View.GONE
+        bottomNavigator.visibility =
+            if (selectedScreen == Screen.COVERAGE_LIST) View.GONE else View.VISIBLE
+
+        if (selectedScreen != Screen.COVERAGE_LIST) {
+            bottomNavigator.select(selectedScreen)
+        }
     }
 
     /**
@@ -557,6 +575,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderConnectedCellsLegend() {
         connectedCellsLegend.removeAllViews()
+        connectedSignalTextByCellKey.clear()
+        connectedSignalIconByCellKey.clear()
 
         val connectedRecords = when (val snapshot = cellRepository.readSnapshot()) {
             is CellSnapshot.Available -> snapshot.records
@@ -566,6 +586,7 @@ class MainActivity : AppCompatActivity() {
             else -> emptyList()
         }
         val connectedByKey = connectedRecords.associateBy { it.cellKey }
+        renderedConnectedCellKeys = connectedByKey.keys
         val coverageByKey = cellDatabase.readCoverageCells()
             .groupBy { it.cellKey }
 
@@ -699,31 +720,49 @@ class MainActivity : AppCompatActivity() {
                 },
                 LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
             )
+            val signalText = TextView(this).apply {
+                text = item.signalDbm?.let { "$it dBm" } ?: ""
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
+                textSize = 11f
+                includeFontPadding = false
+                gravity = android.view.Gravity.CENTER
+            }
             statusColumn.addView(
-                TextView(this).apply {
-                    text = item.signalDbm?.let { "$it dBm" } ?: ""
-                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
-                    textSize = 11f
-                    includeFontPadding = false
-                    gravity = android.view.Gravity.CENTER
-                },
+                signalText,
                 LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
             )
+            if (item.connected) {
+                connectedSignalTextByCellKey[item.cellKey] = signalText
+            }
             row.addView(
                 statusColumn,
                 LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT),
             )
-            row.addView(
-                ImageView(this).apply {
+            if (item.connected) {
+                val signalIcon = ImageView(this).apply {
                     setImageResource(signalLevelIcon(item.signalLevel))
-                    setColorFilter(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    setColorFilter(
+                        ContextCompat.getColor(this@MainActivity, R.color.text_primary)
+                    )
                     contentDescription = getString(R.string.map_coverage_connected)
-                    visibility = if (item.connected) View.VISIBLE else View.INVISIBLE
-                },
-                LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-                    marginStart = dp(4)
-                },
-            )
+                }
+                connectedSignalIconByCellKey[item.cellKey] = signalIcon
+                row.addView(
+                    signalIcon,
+                    LinearLayout.LayoutParams(dp(18), dp(18)).apply {
+                        marginStart = dp(8)
+                        marginEnd = dp(5)
+                    },
+                )
+            } else {
+                row.addView(
+                    View(this),
+                    LinearLayout.LayoutParams(dp(18), dp(18)).apply {
+                        marginStart = dp(8)
+                        marginEnd = dp(5)
+                    },
+                )
+            }
 
             connectedCellsLegend.addView(row)
         }
@@ -774,13 +813,40 @@ class MainActivity : AppCompatActivity() {
     private fun setCoverageListVisible(visible: Boolean) {
         isCoverageListVisible = visible
         coverageListButton.isSelected = visible
-        coverageListPanel.visibility = if (visible) View.VISIBLE else View.GONE
+        selectedScreen = if (visible) Screen.COVERAGE_LIST else Screen.TOWER_MAP
+        renderScreen()
+
         if (visible) {
             towerDetailsPanel.visibility = View.GONE
             renderConnectedCellsLegend()
             restartSignalUiRefresh()
         } else {
             stopSignalUiRefresh()
+            renderTowerEstimates()
+            renderMyLocationMarker(centerMap = isFollowingLocation)
+        }
+    }
+
+    private fun refreshConnectedSignalUi() {
+        val connectedRecords = when (val snapshot = cellRepository.readSnapshot()) {
+            is CellSnapshot.Available -> snapshot.records
+                .filter { it.registered && it.persistable }
+                .distinctBy { it.cellKey }
+
+            else -> emptyList()
+        }
+        val currentKeys = connectedRecords.mapTo(mutableSetOf()) { it.cellKey }
+        if (currentKeys != renderedConnectedCellKeys) {
+            renderConnectedCellsLegend()
+            return
+        }
+
+        connectedRecords.forEach { record ->
+            connectedSignalTextByCellKey[record.cellKey]?.text =
+                record.signalDbm.takeIf { it in -200..-1 }?.let { "$it dBm" } ?: ""
+            connectedSignalIconByCellKey[record.cellKey]?.setImageResource(
+                signalLevelIcon(record.signalLevel.takeIf { it in 0..4 })
+            )
         }
     }
 
@@ -809,12 +875,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun signalLevelIcon(level: Int?): Int {
         return when (level) {
-            0 -> badfox.logic.icons.R.drawable.ms_signal_cellular_0_bar
-            1 -> badfox.logic.icons.R.drawable.ms_signal_cellular_1_bar
-            2 -> badfox.logic.icons.R.drawable.ms_signal_cellular_2_bar
-            3 -> badfox.logic.icons.R.drawable.ms_signal_cellular_3_bar
-            4 -> badfox.logic.icons.R.drawable.ms_signal_cellular_4_bar
-            else -> badfox.logic.icons.R.drawable.ms_signal_cellular_0_bar
+            0 -> R.drawable.ic_signal_bars_0
+            1 -> R.drawable.ic_signal_bars_1
+            2 -> R.drawable.ic_signal_bars_2
+            3 -> R.drawable.ic_signal_bars_3
+            4 -> R.drawable.ic_signal_bars_4
+            else -> R.drawable.ic_signal_bars_0
         }
     }
 

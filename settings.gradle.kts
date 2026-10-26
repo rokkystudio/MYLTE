@@ -26,8 +26,6 @@ rootProject.name = "MYLTE"
 include(":app")
 include(":flags")
 include(":neoui")
-include(":icons")
 
 project(":flags").projectDir = file("../SHARED-APP/flags")
 project(":neoui").projectDir = file("../SHARED-APP/neoui")
-project(":icons").projectDir = file("../SHARED-APP/icons")
