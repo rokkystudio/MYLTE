@@ -49,7 +49,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
 /**
- * Shows network controls, cellular collector state, current precise GPS position, and cached tower estimates.
+ * Shows network controls, cellular collector state, current map position, coverage cells, and cached tower estimates.
  */
 class MainActivity : AppCompatActivity() {
     private enum class Screen {
@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var collectorStatusText: TextView
     private lateinit var collectorToggleButton: Button
     private lateinit var myLocationButton: ImageButton
+    private lateinit var northUpButton: ImageButton
     private lateinit var connectedCellsLegend: LinearLayout
     private lateinit var towerMapView: MapView
     private lateinit var towerDetailsPanel: View
@@ -84,7 +85,9 @@ class MainActivity : AppCompatActivity() {
 
     private var selectedScreen = Screen.NETWORK_MODE
     private var isFollowingLocation = true
+    private var isNorthUp = true
     private var hasFollowCentered = false
+    private var lastMovementBearingDegrees: Float? = null
     private var latestMapLocation: Location? = null
     private var mapLocationUpdatesRegistered = false
     private var trackingMapTouch = false
@@ -98,6 +101,9 @@ class MainActivity : AppCompatActivity() {
     private val mapLocationListener = LocationListener { location ->
         if (!isUsableMapLocation(location)) return@LocationListener
         latestMapLocation = Location(location)
+        if (location.hasBearing()) {
+            lastMovementBearingDegrees = location.bearing
+        }
         if (selectedScreen == Screen.TOWER_MAP) {
             renderMyLocationMarker(centerMap = isFollowingLocation)
         }
@@ -278,8 +284,10 @@ class MainActivity : AppCompatActivity() {
         collectorStatusText = findViewById(R.id.collectorStatusText)
         collectorToggleButton = findViewById(R.id.collectorToggleButton)
         myLocationButton = findViewById(R.id.myLocationButton)
+        northUpButton = findViewById(R.id.northUpButton)
         connectedCellsLegend = findViewById(R.id.connectedCellsLegend)
         myLocationButton.isSelected = isFollowingLocation
+        northUpButton.isSelected = isNorthUp
         towerMapView = findViewById(R.id.towerMapView)
         towerDetailsPanel = findViewById(R.id.towerDetailsPanel)
         towerDetailsTitle = findViewById(R.id.towerDetailsTitle)
@@ -297,6 +305,9 @@ class MainActivity : AppCompatActivity() {
         }
         myLocationButton.setOnClickListener {
             setLocationFollowingEnabled(true, moveImmediately = true)
+        }
+        northUpButton.setOnClickListener {
+            setNorthUpEnabled(!isNorthUp)
         }
         findViewById<Button>(R.id.operatorSettingsButton).setOnClickListener {
             openSettings(Settings.ACTION_NETWORK_OPERATOR_SETTINGS)
@@ -364,6 +375,7 @@ class MainActivity : AppCompatActivity() {
     private fun configureMap() {
         towerMapView.getMapAsync { map ->
             towerMap = map
+            map.uiSettings.setRotateGesturesEnabled(!isNorthUp)
             map.cameraPosition = CameraPosition.Builder()
                 .target(LatLng(20.0, 0.0))
                 .zoom(2.0)
@@ -495,6 +507,16 @@ class MainActivity : AppCompatActivity() {
             normalized * (COVERAGE_MAX_ALPHA - COVERAGE_MIN_ALPHA)).toFloat()
     }
 
+    private fun setNorthUpEnabled(enabled: Boolean) {
+        isNorthUp = enabled
+        northUpButton.isSelected = enabled
+        northUpButton.contentDescription = getString(
+            if (enabled) R.string.map_action_north_up else R.string.map_action_heading_up
+        )
+        towerMap?.uiSettings?.setRotateGesturesEnabled(!enabled)
+        renderMyLocationMarker(centerMap = isFollowingLocation)
+    }
+
     private fun setLocationFollowingEnabled(enabled: Boolean, moveImmediately: Boolean) {
         isFollowingLocation = enabled
         myLocationButton.isSelected = enabled
@@ -519,34 +541,104 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        userLocationMarker?.let(map::removeMarker)
-        userLocationMarker = map.addMarker(
-            MarkerOptions()
-                .position(LatLng(location.latitude, location.longitude))
-                .title(getString(R.string.map_action_my_location))
-        )
+        if (location.hasBearing()) {
+            lastMovementBearingDegrees = location.bearing
+        }
 
-        if (centerMap) {
-            val shouldApplyFollowZoom = isFollowingLocation && !hasFollowCentered
-            val targetZoom = if (shouldApplyFollowZoom) {
-                FOLLOW_LOCATION_ZOOM
-            } else {
-                map.cameraPosition.zoom
-            }
-            map.animateCamera(
-                org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder()
-                        .target(LatLng(location.latitude, location.longitude))
-                        .zoom(targetZoom)
-                        .build()
-                ),
-                LOCATION_CAMERA_ANIMATION_MS,
+        val movementBearing = lastMovementBearingDegrees
+        val markerRotation = when {
+            movementBearing == null -> 0f
+            isFollowingLocation && !isNorthUp -> 0f
+            else -> normalizeBearing(
+                movementBearing - map.cameraPosition.bearing.toFloat()
             )
-            if (shouldApplyFollowZoom) {
-                hasFollowCentered = true
-            }
+        }
+
+        val markerIcon = createNavigationMarkerIcon(markerRotation)
+        val marker = userLocationMarker
+        if (marker == null) {
+            userLocationMarker = map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(location.latitude, location.longitude))
+                    .icon(markerIcon)
+            )
+        } else {
+            marker.position = LatLng(location.latitude, location.longitude)
+            marker.icon = markerIcon
+            map.updateMarker(marker)
+        }
+
+        if (!centerMap || !isFollowingLocation) return
+
+        val shouldApplyFollowZoom = !hasFollowCentered
+        val targetZoom = if (shouldApplyFollowZoom) {
+            FOLLOW_LOCATION_ZOOM
+        } else {
+            map.cameraPosition.zoom
+        }
+        val targetBearing = when {
+            isNorthUp -> 0.0
+            movementBearing != null -> movementBearing.toDouble()
+            else -> map.cameraPosition.bearing
+        }
+
+        map.animateCamera(
+            org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(LatLng(location.latitude, location.longitude))
+                    .zoom(targetZoom)
+                    .bearing(targetBearing)
+                    .build()
+            ),
+            LOCATION_CAMERA_ANIMATION_MS,
+        )
+        if (shouldApplyFollowZoom) {
+            hasFollowCentered = true
         }
     }
+
+    private fun normalizeBearing(value: Float): Float {
+        return ((value % 360f) + 360f) % 360f
+    }
+
+    private fun createNavigationMarkerIcon(rotationDegrees: Float) =
+        IconFactory.getInstance(this).fromBitmap(
+            Bitmap.createBitmap(dp(44), dp(44), Bitmap.Config.ARGB_8888).apply {
+                val canvas = Canvas(this)
+                val center = width / 2f
+                canvas.rotate(rotationDegrees, center, center)
+
+                val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(33, 150, 243)
+                    style = Paint.Style.FILL
+                }
+                val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    style = Paint.Style.STROKE
+                    strokeWidth = dp(2).toFloat()
+                    strokeJoin = Paint.Join.ROUND
+                }
+                val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(80, 0, 0, 0)
+                    style = Paint.Style.FILL
+                }
+
+                val path = android.graphics.Path().apply {
+                    moveTo(center, dp(4).toFloat())
+                    lineTo(dp(36).toFloat(), dp(36).toFloat())
+                    lineTo(center, dp(29).toFloat())
+                    lineTo(dp(8).toFloat(), dp(36).toFloat())
+                    close()
+                }
+
+                canvas.save()
+                canvas.translate(0f, dp(2).toFloat())
+                canvas.drawPath(path, shadow)
+                canvas.restore()
+                canvas.drawPath(path, fill)
+                canvas.drawPath(path, outline)
+            }
+        )
 
     private fun startMapLocationUpdates() {
         val fine = ContextCompat.checkSelfPermission(

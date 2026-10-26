@@ -216,6 +216,22 @@
                 android:stateListAnimator="@null"
                 android:tint="@color/map_location_icon_tint" />
 
+            <ImageButton
+                android:id="@+id/northUpButton"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="66dp"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/bg_map_location_button"
+                android:contentDescription="@string/map_action_north_up"
+                android:elevation="8dp"
+                android:padding="10dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_map_compass"
+                android:stateListAnimator="@null"
+                android:tint="@color/map_location_icon_tint" />
+
             <LinearLayout
                 android:id="@+id/towerDetailsPanel"
                 android:layout_width="match_parent"
