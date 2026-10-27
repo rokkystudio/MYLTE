@@ -79,6 +79,8 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
                 operator TEXT,
                 identity_text TEXT NOT NULL,
                 signal_dbm INTEGER NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
                 recorded_at INTEGER NOT NULL
             )
             """.trimIndent()
@@ -226,6 +228,39 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             )
             db.execSQL("UPDATE cell_grid_stats SET sample_count = 1")
         }
+        if (oldVersion < 8) {
+            db.execSQL(
+                "ALTER TABLE cell_grid_samples ADD COLUMN latitude REAL NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "ALTER TABLE cell_grid_samples ADD COLUMN longitude REAL NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                """
+                UPDATE cell_grid_samples
+                SET latitude = COALESCE(
+                        (
+                            SELECT cell_grid_stats.latitude
+                            FROM cell_grid_stats
+                            WHERE cell_grid_stats.cell_key = cell_grid_samples.cell_key
+                              AND cell_grid_stats.grid_x = cell_grid_samples.grid_x
+                              AND cell_grid_stats.grid_y = cell_grid_samples.grid_y
+                        ),
+                        0
+                    ),
+                    longitude = COALESCE(
+                        (
+                            SELECT cell_grid_stats.longitude
+                            FROM cell_grid_stats
+                            WHERE cell_grid_stats.cell_key = cell_grid_samples.cell_key
+                              AND cell_grid_stats.grid_x = cell_grid_samples.grid_x
+                              AND cell_grid_stats.grid_y = cell_grid_samples.grid_y
+                        ),
+                        0
+                    )
+                """.trimIndent()
+            )
+        }
     }
 
 
@@ -255,7 +290,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             upsertGridScan(grid, recordedAt)
 
             acceptedRecords.forEach { record ->
-                insertGridSample(record, grid, recordedAt)
+                insertGridSample(record, grid, location, recordedAt)
                 pruneGridSamples(record.cellKey, grid)
                 rebuildGridStat(record.cellKey, grid)
             }
@@ -290,7 +325,12 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    private fun insertGridSample(record: CellTowerRecord, grid: GridCell, recordedAt: Long) {
+    private fun insertGridSample(
+        record: CellTowerRecord,
+        grid: GridCell,
+        location: Location,
+        recordedAt: Long,
+    ) {
         val values = ContentValues().apply {
             put("cell_key", record.cellKey)
             put("grid_x", grid.x)
@@ -299,6 +339,8 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             put("operator", record.operator)
             put("identity_text", record.identityLines.joinToString("\n"))
             put("signal_dbm", record.signalDbm)
+            put("latitude", location.latitude)
+            put("longitude", location.longitude)
             put("recorded_at", recordedAt)
         }
         writableDatabase.insertOrThrow("cell_grid_samples", null, values)
@@ -322,50 +364,48 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     private fun rebuildGridStat(cellKey: String, grid: GridCell) {
-        data class Aggregate(
+        data class RetainedSample(
             val radio: String,
             val operator: String?,
             val identityText: String,
-            val count: Int,
-            val sum: Int,
-            val min: Int,
-            val max: Int,
-            val lastSeenAt: Long,
+            val signalDbm: Int,
+            val latitude: Double,
+            val longitude: Double,
+            val recordedAt: Long,
         )
 
-        var aggregate: Aggregate? = null
-        readableDatabase.rawQuery(
-            """
-            SELECT
-                radio,
-                operator,
-                identity_text,
-                COUNT(*),
-                SUM(signal_dbm),
-                MIN(signal_dbm),
-                MAX(signal_dbm),
-                MAX(recorded_at)
-            FROM cell_grid_samples
-            WHERE cell_key = ? AND grid_x = ? AND grid_y = ?
-            """.trimIndent(),
+        val samples = mutableListOf<RetainedSample>()
+        readableDatabase.query(
+            "cell_grid_samples",
+            arrayOf(
+                "radio",
+                "operator",
+                "identity_text",
+                "signal_dbm",
+                "latitude",
+                "longitude",
+                "recorded_at",
+            ),
+            "cell_key = ? AND grid_x = ? AND grid_y = ?",
             arrayOf(cellKey, grid.x.toString(), grid.y.toString()),
+            null,
+            null,
+            "recorded_at ASC, id ASC",
         ).use { cursor ->
-            if (cursor.moveToFirst() && cursor.getInt(3) > 0) {
-                aggregate = Aggregate(
+            while (cursor.moveToNext()) {
+                samples += RetainedSample(
                     radio = cursor.getString(0),
                     operator = cursor.getString(1),
                     identityText = cursor.getString(2),
-                    count = cursor.getInt(3),
-                    sum = cursor.getInt(4),
-                    min = cursor.getInt(5),
-                    max = cursor.getInt(6),
-                    lastSeenAt = cursor.getLong(7),
+                    signalDbm = cursor.getInt(3),
+                    latitude = cursor.getDouble(4),
+                    longitude = cursor.getDouble(5),
+                    recordedAt = cursor.getLong(6),
                 )
             }
         }
 
-        val value = aggregate
-        if (value == null) {
+        if (samples.isEmpty()) {
             writableDatabase.delete(
                 "cell_grid_stats",
                 "cell_key = ? AND grid_x = ? AND grid_y = ?",
@@ -374,22 +414,34 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             return
         }
 
-        val center = gridCenter(grid)
+        val strongestDbm = samples.maxOf { it.signalDbm }
+        var coordinateWeightSum = 0.0
+        var latitudeSum = 0.0
+        var longitudeSum = 0.0
+        samples.forEach { sample ->
+            val weight = 10.0.pow((sample.signalDbm - strongestDbm) / 10.0)
+            coordinateWeightSum += weight
+            latitudeSum += sample.latitude * weight
+            longitudeSum += sample.longitude * weight
+        }
+
+        val newest = samples.maxBy { it.recordedAt }
+        val signalSum = samples.sumOf { it.signalDbm }
         val values = ContentValues().apply {
             put("cell_key", cellKey)
             put("grid_x", grid.x)
             put("grid_y", grid.y)
-            put("radio", value.radio)
-            put("operator", value.operator)
-            put("identity_text", value.identityText)
-            put("latitude", center.first)
-            put("longitude", center.second)
-            put("sample_count", value.count)
-            put("signal_sum_dbm", value.sum)
-            put("signal_avg_dbm", value.sum.toDouble() / value.count)
-            put("signal_min_dbm", value.min)
-            put("signal_max_dbm", value.max)
-            put("last_seen_at", value.lastSeenAt)
+            put("radio", newest.radio)
+            put("operator", newest.operator)
+            put("identity_text", newest.identityText)
+            put("latitude", latitudeSum / coordinateWeightSum)
+            put("longitude", longitudeSum / coordinateWeightSum)
+            put("sample_count", samples.size)
+            put("signal_sum_dbm", signalSum)
+            put("signal_avg_dbm", signalSum.toDouble() / samples.size)
+            put("signal_min_dbm", samples.minOf { it.signalDbm })
+            put("signal_max_dbm", strongestDbm)
+            put("last_seen_at", newest.recordedAt)
         }
         writableDatabase.insertWithOnConflict(
             "cell_grid_stats",
@@ -857,7 +909,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
 
     private companion object {
         const val DATABASE_NAME = "mylte.db"
-        const val DATABASE_VERSION = 7
+        const val DATABASE_VERSION = 8
         const val GRID_SIZE_METERS = 50.0
         const val MAX_GRID_CONFIDENCE = 20
         const val GRID_SIGNAL_EMA_ALPHA = 0.2
