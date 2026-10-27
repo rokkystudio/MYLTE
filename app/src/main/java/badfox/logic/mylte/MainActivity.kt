@@ -470,6 +470,10 @@ class MainActivity : AppCompatActivity() {
                 .target(LatLng(20.0, 0.0))
                 .zoom(2.0)
                 .build()
+            map.addOnCameraIdleListener {
+                renderTowerEstimates()
+                renderConnectedCellsLegend()
+            }
             map.addOnRotateListener(
                 object : MapLibreMap.OnRotateListener {
                     override fun onRotateBegin(detector: RotateGestureDetector) {
@@ -542,9 +546,14 @@ class MainActivity : AppCompatActivity() {
         towerMarkers.clear()
         towerByMarkerId.clear()
 
-        val connectedCellKeys = currentConnectedCellKeys()
-        val visibleCoverage = cellDatabase.readCoverageCells()
-            .filter { it.cellKey !in hiddenCoverageCellKeys }
+        val overviewMode = map.cameraPosition.zoom < COVERAGE_OVERVIEW_ZOOM_THRESHOLD
+        val allCoverage = cellDatabase.readCoverageCells()
+        val connectedCellKeys = if (overviewMode) emptySet() else currentConnectedCellKeys()
+        val visibleCoverage = if (overviewMode) {
+            allCoverage
+        } else {
+            allCoverage.filter { it.cellKey !in hiddenCoverageCellKeys }
+        }
 
         visibleCoverage
             .groupBy {
@@ -558,8 +567,16 @@ class MainActivity : AppCompatActivity() {
             .forEach { (grid, cells) ->
                 val connectedCells = cells.filter { it.cellKey in connectedCellKeys }
                 val renderedCells = connectedCells.ifEmpty { cells }
-                val color = blendTowerColors(renderedCells.map { towerColor(it.cellKey) })
-                val alpha = renderedCells.maxOf { coverageAlpha(it.averageSignalDbm) }
+                val color = if (overviewMode) {
+                    ContextCompat.getColor(this, R.color.accent)
+                } else {
+                    blendTowerColors(renderedCells.map { towerColor(it.cellKey) })
+                }
+                val alpha = if (overviewMode) {
+                    COVERAGE_OVERVIEW_ALPHA
+                } else {
+                    renderedCells.maxOf { coverageAlpha(it.averageSignalDbm) }
+                }
                 val polygon = map.addPolygon(
                     PolygonOptions()
                         .add(
@@ -575,19 +592,21 @@ class MainActivity : AppCompatActivity() {
                 coveragePolygons += polygon
             }
 
-        cellDatabase.readTowerEstimates()
-            .asSequence()
-            .filter { it.cellKey !in hiddenCoverageCellKeys }
-            .sortedBy { it.cellKey in connectedCellKeys }
-            .forEach { estimate ->
-                val marker = map.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(estimate.latitude, estimate.longitude))
-                        .icon(createTowerMarkerIcon(towerColor(estimate.cellKey)))
-                )
-                towerMarkers += marker
-                towerByMarkerId[marker.id] = estimate
-            }
+        if (!overviewMode) {
+            cellDatabase.readTowerEstimates()
+                .asSequence()
+                .filter { it.cellKey !in hiddenCoverageCellKeys }
+                .sortedBy { it.cellKey in connectedCellKeys }
+                .forEach { estimate ->
+                    val marker = map.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(estimate.latitude, estimate.longitude))
+                            .icon(createTowerMarkerIcon(towerColor(estimate.cellKey)))
+                    )
+                    towerMarkers += marker
+                    towerByMarkerId[marker.id] = estimate
+                }
+        }
     }
 
     private fun renderConnectedCellsLegend() {
@@ -787,6 +806,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderMapCoverageLegend(items: List<CoverageLegendItem>) {
         mapCoverageLegend.removeAllViews()
+        val map = towerMap
+        if (map != null && map.cameraPosition.zoom < COVERAGE_OVERVIEW_ZOOM_THRESHOLD) {
+            mapCoverageLegend.visibility = View.GONE
+            return
+        }
+
         val visibleItems = items.filter { it.cellKey !in hiddenCoverageCellKeys }
         mapCoverageLegend.visibility = if (visibleItems.isEmpty()) View.GONE else View.VISIBLE
 
@@ -1394,6 +1419,8 @@ class MainActivity : AppCompatActivity() {
         const val NORTH_UP_ANIMATION_MS = 700
         const val SIGNAL_UI_REFRESH_INTERVAL_MS = 1_000L
         const val TOWER_DETAILS_HISTORY_LIMIT = 3
+        const val COVERAGE_OVERVIEW_ZOOM_THRESHOLD = 14.0
+        const val COVERAGE_OVERVIEW_ALPHA = 0.55f
         const val COVERAGE_SIGNAL_MIN_DBM = -120.0
         const val COVERAGE_SIGNAL_MAX_DBM = -70.0
         const val COVERAGE_MIN_ALPHA = 0.10
