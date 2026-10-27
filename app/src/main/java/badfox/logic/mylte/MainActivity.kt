@@ -1224,6 +1224,29 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    /**
+     * Returns the shortest cell-specific identity suitable for a map label.
+     */
+    private fun towerMapLabel(estimate: CellDatabase.TowerEstimate): String {
+        val identityLines = estimate.identityText.lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toList()
+        val preferredPrefix = when (estimate.radio) {
+            "LTE" -> "CI:"
+            "NR" -> "NCI:"
+            "GSM", "WCDMA", "TD-SCDMA" -> "CID:"
+            "CDMA" -> "Basestation ID:"
+            else -> null
+        }
+        return preferredPrefix
+            ?.let { prefix ->
+                identityLines.firstOrNull { it.startsWith(prefix) }
+            }
+            ?: identityLines.firstOrNull()
+            ?: estimate.radio
+    }
+
     private fun visibleTowerLabels(
         map: MapLibreMap,
         estimates: List<CellDatabase.TowerEstimate>,
@@ -1270,9 +1293,7 @@ class MainActivity : AppCompatActivity() {
                 return@mapNotNull null
             }
 
-            val label = estimate.operator
-                ?.takeIf { it.isNotBlank() }
-                ?: estimate.radio
+            val label = towerMapLabel(estimate)
             val textWidth = textPaint.measureText(label)
             val textHeight = textPaint.fontMetrics.run { bottom - top }
             val left = point.x + TOWER_MARKER_RADIUS_PX + labelGap
