@@ -102,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     private var isNorthUp = true
     private var isCoverageListVisible = false
     private var hasFollowCentered = false
+    private var locationUnavailableToastShown = false
     private val movementHeadingTracker = MovementHeadingTracker()
     private var lastMovementBearingDegrees: Float? = null
     private var latestMapLocation: Location? = null
@@ -126,6 +127,7 @@ class MainActivity : AppCompatActivity() {
     private val mapLocationListener = LocationListener { location ->
         if (!isUsableMapLocation(location)) return@LocationListener
         latestMapLocation = Location(location)
+        locationUnavailableToastShown = false
         movementHeadingTracker.update(location)?.let { bearing ->
             lastMovementBearingDegrees = bearing
         }
@@ -963,6 +965,9 @@ class MainActivity : AppCompatActivity() {
     private fun setLocationFollowingEnabled(enabled: Boolean, moveImmediately: Boolean) {
         isFollowingLocation = enabled
         myLocationButton.isSelected = enabled
+        if (enabled) {
+            locationUnavailableToastShown = false
+        }
         if (enabled && moveImmediately) {
             hasFollowCentered = false
             renderMyLocationMarker(centerMap = true)
@@ -978,11 +983,14 @@ class MainActivity : AppCompatActivity() {
             ?: readBestLastKnownMapLocation()
 
         if (location == null) {
-            if (centerMap) {
+            if (centerMap && !locationUnavailableToastShown) {
                 Toast.makeText(this, R.string.map_location_unavailable, Toast.LENGTH_SHORT).show()
+                locationUnavailableToastShown = true
             }
             return
         }
+
+        locationUnavailableToastShown = false
 
         movementHeadingTracker.update(location)?.let { bearing ->
             lastMovementBearingDegrees = bearing
