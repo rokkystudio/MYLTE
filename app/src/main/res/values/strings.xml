@@ -48,7 +48,8 @@
     <string name="map_action_my_location">My location</string>
     <string name="map_location_unavailable">No recent location is available.</string>
     <string name="map_tower_title">%1$s tower</string>
-    <string name="map_tower_details">Operator: %1$s\nSamples: %2$d\nCoordinates: %3$.6f, %4$.6f\n\n%5$s</string>
+    <string name="map_tower_details">Operator: %1$s\nSamples: %2$d\nObserved grids: %3$d\nEstimated coordinates: %4$.6f, %5$.6f\nLast seen: %6$s\n\n%7$s\n\nRecent signal samples:\n%8$s</string>
+    <string name="map_tower_history_entry">%1$s · %2$d dBm</string>
     <string name="map_action_north_up">Keep north up</string>
     <string name="map_action_heading_up">Rotate map with movement</string>
     <string name="map_coverage_connected">CONNECTED</string>

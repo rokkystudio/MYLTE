@@ -36,6 +36,11 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         val east: Double,
     )
 
+    data class TowerHistoryEntry(
+        val signalDbm: Int,
+        val recordedAt: Long,
+    )
+
     data class TowerEstimate(
         val cellKey: String,
         val radio: String,
@@ -227,9 +232,10 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
     /**
      * Stores one valid precise-GPS cellular scan in the current 50-meter grid cell.
      *
-     * At most five recent samples are retained for each cell identity in each grid cell. A valid
-     * non-empty scan also removes coverage for cell identities previously seen in this grid cell
-     * but absent from the current scan. Empty or unavailable scans never modify coverage.
+     * At most five recent samples are retained for each cell identity in each grid cell. Each
+     * accepted cell identity is updated independently because Android may return only a partial
+     * set of neighboring cells in any individual scan. Empty or unavailable scans never modify
+     * coverage.
      */
     fun insertMeasurements(
         records: List<CellTowerRecord>,
@@ -247,7 +253,6 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
         writableDatabase.beginTransaction()
         try {
             upsertGridScan(grid, recordedAt)
-            val removedCellKeys = removeAbsentCellsFromGrid(grid, observedCellKeys)
 
             acceptedRecords.forEach { record ->
                 insertGridSample(record, grid, recordedAt)
@@ -255,12 +260,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
                 rebuildGridStat(record.cellKey, grid)
             }
 
-            val affectedCellKeys = linkedSetOf<String>().apply {
-                addAll(observedCellKeys)
-                addAll(removedCellKeys)
-                addAll(readTowerKeysWithoutCoverage())
-            }
-            affectedCellKeys.forEach(::updateOrRemoveTowerEstimate)
+            observedCellKeys.forEach(::updateOrRemoveTowerEstimate)
 
             writableDatabase.setTransactionSuccessful()
         } finally {
@@ -288,41 +288,6 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             """.trimIndent(),
             arrayOf(grid.x, grid.y, center.first, center.second, recordedAt),
         )
-    }
-
-    private fun removeAbsentCellsFromGrid(
-        grid: GridCell,
-        observedCellKeys: Set<String>,
-    ): Set<String> {
-        val previouslyKnown = mutableSetOf<String>()
-        readableDatabase.query(
-            "cell_grid_stats",
-            arrayOf("cell_key"),
-            "grid_x = ? AND grid_y = ?",
-            arrayOf(grid.x.toString(), grid.y.toString()),
-            null,
-            null,
-            null,
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                previouslyKnown += cursor.getString(0)
-            }
-        }
-
-        val removedCellKeys = previouslyKnown - observedCellKeys
-        removedCellKeys.forEach { cellKey ->
-            writableDatabase.delete(
-                "cell_grid_samples",
-                "cell_key = ? AND grid_x = ? AND grid_y = ?",
-                arrayOf(cellKey, grid.x.toString(), grid.y.toString()),
-            )
-            writableDatabase.delete(
-                "cell_grid_stats",
-                "cell_key = ? AND grid_x = ? AND grid_y = ?",
-                arrayOf(cellKey, grid.x.toString(), grid.y.toString()),
-            )
-        }
-        return removedCellKeys
     }
 
     private fun insertGridSample(record: CellTowerRecord, grid: GridCell, recordedAt: Long) {
@@ -520,7 +485,7 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
     }
 
     /**
-     * Returns every cached tower estimate, including towers that have not been observed recently.
+     * Returns every cached tower estimate currently represented by retained coverage observations.
      */
     fun readTowerEstimates(): List<TowerEstimate> {
         val result = mutableListOf<TowerEstimate>()
@@ -556,6 +521,53 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
                     sampleCount = cursor.getInt(7),
                     lastSeenAt = cursor.getLong(8),
                     updatedAt = cursor.getLong(9),
+                )
+            }
+        }
+        return result
+    }
+
+    /**
+     * Returns the number of distinct observed grid cells retained for one cell identity.
+     */
+    fun readTowerGridCount(cellKey: String): Int {
+        readableDatabase.rawQuery(
+            """
+            SELECT COUNT(*)
+            FROM cell_grid_stats
+            WHERE cell_key = ?
+            """.trimIndent(),
+            arrayOf(cellKey),
+        ).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
+    /**
+     * Returns the newest retained signal samples for one cell identity.
+     */
+    fun readTowerRecentSamples(
+        cellKey: String,
+        limit: Int = 5,
+    ): List<TowerHistoryEntry> {
+        val result = mutableListOf<TowerHistoryEntry>()
+        readableDatabase.query(
+            "cell_grid_samples",
+            arrayOf(
+                "signal_dbm",
+                "recorded_at",
+            ),
+            "cell_key = ?",
+            arrayOf(cellKey),
+            null,
+            null,
+            "recorded_at DESC, id DESC",
+            limit.coerceAtLeast(1).toString(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += TowerHistoryEntry(
+                    signalDbm = cursor.getInt(0),
+                    recordedAt = cursor.getLong(1),
                 )
             }
         }

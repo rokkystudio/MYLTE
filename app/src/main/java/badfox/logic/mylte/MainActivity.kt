@@ -50,6 +50,8 @@ import org.maplibre.android.gestures.RotateGestureDetector
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * Shows network controls, cellular collector state, current map position, coverage cells, and cached tower estimates.
@@ -1177,14 +1179,37 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTowerDetails(estimate: CellDatabase.TowerEstimate) {
         setCoverageListVisible(false)
+
+        val gridCount = cellDatabase.readTowerGridCount(estimate.cellKey)
+        val dateTimeFormat = DateFormat.getDateTimeInstance(
+            DateFormat.SHORT,
+            DateFormat.MEDIUM,
+        )
+        val recentSamples = cellDatabase.readTowerRecentSamples(
+            cellKey = estimate.cellKey,
+            limit = TOWER_DETAILS_HISTORY_LIMIT,
+        )
+        val recentHistory = recentSamples.joinToString(separator = "\n") { sample ->
+            getString(
+                R.string.map_tower_history_entry,
+                dateTimeFormat.format(Date(sample.recordedAt)),
+                sample.signalDbm,
+            )
+        }.ifBlank {
+            getString(R.string.common_not_available)
+        }
+
         towerDetailsTitle.text = getString(R.string.map_tower_title, estimate.radio)
         towerDetailsText.text = getString(
             R.string.map_tower_details,
             estimate.operator ?: getString(R.string.common_not_available),
             estimate.sampleCount,
+            gridCount,
             estimate.latitude,
             estimate.longitude,
+            dateTimeFormat.format(Date(estimate.lastSeenAt)),
             estimate.identityText,
+            recentHistory,
         )
         towerDetailsPanel.visibility = View.VISIBLE
     }
@@ -1358,6 +1383,7 @@ class MainActivity : AppCompatActivity() {
         const val LOCATION_CAMERA_ANIMATION_MS = 1_500
         const val NORTH_UP_ANIMATION_MS = 700
         const val SIGNAL_UI_REFRESH_INTERVAL_MS = 1_000L
+        const val TOWER_DETAILS_HISTORY_LIMIT = 3
         const val COVERAGE_SIGNAL_MIN_DBM = -120.0
         const val COVERAGE_SIGNAL_MAX_DBM = -70.0
         const val COVERAGE_MIN_ALPHA = 0.10
