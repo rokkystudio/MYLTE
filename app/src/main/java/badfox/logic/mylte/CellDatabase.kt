@@ -295,7 +295,9 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
                 rebuildGridStat(record.cellKey, grid)
             }
 
-            observedCellKeys.forEach(::updateOrRemoveTowerEstimate)
+            observedCellKeys.forEach { cellKey ->
+                updateTowerEstimate(cellKey, writableDatabase)
+            }
 
             writableDatabase.setTransactionSuccessful()
         } finally {
@@ -449,45 +451,6 @@ class CellDatabase(context: Context) : SQLiteOpenHelper(
             values,
             SQLiteDatabase.CONFLICT_REPLACE,
         )
-    }
-
-    private fun readTowerKeysWithoutCoverage(): Set<String> {
-        val result = linkedSetOf<String>()
-        readableDatabase.rawQuery(
-            """
-            SELECT tower_estimates.cell_key
-            FROM tower_estimates
-            LEFT JOIN cell_grid_stats
-                ON cell_grid_stats.cell_key = tower_estimates.cell_key
-            GROUP BY tower_estimates.cell_key
-            HAVING COUNT(cell_grid_stats.cell_key) = 0
-            """.trimIndent(),
-            null,
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                result += cursor.getString(0)
-            }
-        }
-        return result
-    }
-
-    private fun updateOrRemoveTowerEstimate(cellKey: String) {
-        val count = readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM cell_grid_stats WHERE cell_key = ?",
-            arrayOf(cellKey),
-        ).use { cursor ->
-            cursor.moveToFirst()
-            cursor.getInt(0)
-        }
-        if (count == 0) {
-            writableDatabase.delete(
-                "tower_estimates",
-                "cell_key = ?",
-                arrayOf(cellKey),
-            )
-        } else {
-            updateTowerEstimate(cellKey)
-        }
     }
 
     /**
