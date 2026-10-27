@@ -749,13 +749,13 @@ class MainActivity : AppCompatActivity() {
 
             val networkText = TextView(this).apply {
                 text = buildString {
-                    append(item.radio)
+                    append(towerGenerationLabel(item.radio))
+                    append(" · ").append(item.radio)
                     item.operator?.takeIf { it.isNotBlank() }?.let {
                         append(" · ").append(it)
                     }
-                    item.identityText.lineSequence()
-                        .firstOrNull()
-                        ?.takeIf { it.isNotBlank() }
+                    item.identityText
+                        .takeIf { it.isNotBlank() }
                         ?.let { append("\n").append(it) }
                     if (!item.hasCoverage) {
                         append("\n").append(getString(R.string.map_coverage_no_saved_data))
@@ -1225,26 +1225,26 @@ class MainActivity : AppCompatActivity() {
 
 
     /**
-     * Returns the shortest cell-specific identity suitable for a map label.
+     * Returns a human-readable cellular generation suitable for a compact map label.
      */
     private fun towerMapLabel(estimate: CellDatabase.TowerEstimate): String {
-        val identityLines = estimate.identityText.lineSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .toList()
-        val preferredPrefix = when (estimate.radio) {
-            "LTE" -> "CI:"
-            "NR" -> "NCI:"
-            "GSM", "WCDMA", "TD-SCDMA" -> "CID:"
-            "CDMA" -> "Basestation ID:"
-            else -> null
+        return when (estimate.radio) {
+            "GSM", "CDMA" -> "2G"
+            "WCDMA", "TD-SCDMA" -> "3G"
+            "LTE" -> "4G"
+            "NR" -> "5G"
+            else -> estimate.radio
         }
-        return preferredPrefix
-            ?.let { prefix ->
-                identityLines.firstOrNull { it.startsWith(prefix) }
-            }
-            ?: identityLines.firstOrNull()
-            ?: estimate.radio
+    }
+
+    private fun towerGenerationLabel(radio: String): String {
+        return when (radio) {
+            "GSM", "CDMA" -> "2G"
+            "WCDMA", "TD-SCDMA" -> "3G"
+            "LTE" -> "4G"
+            "NR" -> "5G"
+            else -> radio
+        }
     }
 
     private fun visibleTowerLabels(
