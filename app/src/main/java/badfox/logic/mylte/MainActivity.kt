@@ -963,9 +963,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setLocationFollowingEnabled(enabled: Boolean, moveImmediately: Boolean) {
+        val wasFollowingLocation = isFollowingLocation
         isFollowingLocation = enabled
         myLocationButton.isSelected = enabled
-        if (enabled) {
+
+        if (enabled && !wasFollowingLocation) {
             locationUnavailableToastShown = false
         }
         if (enabled && moveImmediately) {
