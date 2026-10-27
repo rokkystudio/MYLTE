@@ -196,7 +196,9 @@ class MainActivity : AppCompatActivity() {
             ?.let { runCatching { Screen.valueOf(it) }.getOrNull() }
             ?: Screen.NETWORK_MODE
         isCoverageListVisible = selectedScreen == Screen.COVERAGE_LIST
+        restoreMapControlState()
         bindViews()
+        saveMapControlState()
         bindActions()
         renderTopBar()
         renderBottomNavigator()
@@ -437,8 +439,10 @@ class MainActivity : AppCompatActivity() {
             renderScreen()
             renderSnapshot()
             if (screen == Screen.TOWER_MAP) {
-                hasFollowCentered = false
-                setLocationFollowingEnabled(true, moveImmediately = true)
+                if (isFollowingLocation) {
+                    hasFollowCentered = false
+                }
+                renderMyLocationMarker(centerMap = isFollowingLocation)
                 renderTowerEstimates()
                 renderConnectedCellsLegend()
             }
@@ -468,11 +472,15 @@ class MainActivity : AppCompatActivity() {
         towerMapView.getMapAsync { map ->
             towerMap = map
             map.uiSettings.setRotateGesturesEnabled(true)
-            map.cameraPosition = CameraPosition.Builder()
-                .target(LatLng(20.0, 0.0))
-                .zoom(2.0)
-                .build()
+            map.cameraPosition = readSavedMapCameraPosition()
+                ?: CameraPosition.Builder()
+                    .target(LatLng(20.0, 0.0))
+                    .zoom(2.0)
+                    .build()
+            saveMapCameraPosition(map.cameraPosition)
+            saveMapControlState()
             map.addOnCameraIdleListener {
+                saveMapCameraPosition(map.cameraPosition)
                 renderTowerEstimates()
                 renderConnectedCellsLegend()
             }
@@ -988,6 +996,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         isNorthUp = enabled
         northUpButton.isSelected = enabled
+        saveMapControlState()
         northUpButton.contentDescription = getString(
             if (enabled) R.string.map_action_north_up else R.string.map_action_heading_up
         )
@@ -1026,6 +1035,7 @@ class MainActivity : AppCompatActivity() {
         val wasFollowingLocation = isFollowingLocation
         isFollowingLocation = enabled
         myLocationButton.isSelected = enabled
+        saveMapControlState()
 
         if (enabled && !wasFollowingLocation) {
             locationUnavailableToastShown = false
@@ -1429,6 +1439,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Persists map control modes so the next launch restores the same interaction state.
+     */
+    private fun saveMapControlState() {
+        getSharedPreferences(MAP_PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_MAP_FOLLOW_ENABLED, isFollowingLocation)
+            .putBoolean(KEY_MAP_NORTH_UP_ENABLED, isNorthUp)
+            .apply()
+    }
+
+    /**
+     * Restores map control modes before the map controls are bound.
+     */
+    private fun restoreMapControlState() {
+        val preferences = getSharedPreferences(MAP_PREFERENCES_NAME, Context.MODE_PRIVATE)
+        isFollowingLocation = preferences.getBoolean(KEY_MAP_FOLLOW_ENABLED, true)
+        isNorthUp = preferences.getBoolean(KEY_MAP_NORTH_UP_ENABLED, true)
+    }
+
+    /**
+     * Saves the current map camera so the next map opening starts from the same view.
+     */
+    private fun saveMapCameraPosition(cameraPosition: CameraPosition) {
+        val target = cameraPosition.target ?: return
+        getSharedPreferences(MAP_PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_MAP_CAMERA_AVAILABLE, true)
+            .putLong(KEY_MAP_CAMERA_LATITUDE, target.latitude.toBits())
+            .putLong(KEY_MAP_CAMERA_LONGITUDE, target.longitude.toBits())
+            .putLong(KEY_MAP_CAMERA_ZOOM, cameraPosition.zoom.toBits())
+            .putLong(KEY_MAP_CAMERA_BEARING, cameraPosition.bearing.toBits())
+            .apply()
+    }
+
+    /**
+     * Restores the last complete map camera state when one has been saved.
+     */
+    private fun readSavedMapCameraPosition(): CameraPosition? {
+        val preferences = getSharedPreferences(MAP_PREFERENCES_NAME, Context.MODE_PRIVATE)
+        if (!preferences.getBoolean(KEY_MAP_CAMERA_AVAILABLE, false)) return null
+
+        val latitude = Double.fromBits(
+            preferences.getLong(KEY_MAP_CAMERA_LATITUDE, 0L)
+        )
+        val longitude = Double.fromBits(
+            preferences.getLong(KEY_MAP_CAMERA_LONGITUDE, 0L)
+        )
+        val zoom = Double.fromBits(
+            preferences.getLong(KEY_MAP_CAMERA_ZOOM, 0L)
+        )
+        val bearing = Double.fromBits(
+            preferences.getLong(KEY_MAP_CAMERA_BEARING, 0L)
+        )
+        if (!latitude.isFinite() ||
+            !longitude.isFinite() ||
+            !zoom.isFinite() ||
+            !bearing.isFinite()
+        ) {
+            return null
+        }
+
+        return CameraPosition.Builder()
+            .target(LatLng(latitude, longitude))
+            .zoom(zoom)
+            .bearing(bearing)
+            .build()
+    }
+
     private fun hasInternetConnection(): Boolean {
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
         val network = connectivityManager.activeNetwork ?: return false
@@ -1639,6 +1718,14 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val KEY_SELECTED_SCREEN = "selected_screen"
+        const val MAP_PREFERENCES_NAME = "map_state"
+        const val KEY_MAP_CAMERA_AVAILABLE = "camera_available"
+        const val KEY_MAP_CAMERA_LATITUDE = "camera_latitude"
+        const val KEY_MAP_CAMERA_LONGITUDE = "camera_longitude"
+        const val KEY_MAP_CAMERA_ZOOM = "camera_zoom"
+        const val KEY_MAP_CAMERA_BEARING = "camera_bearing"
+        const val KEY_MAP_FOLLOW_ENABLED = "follow_enabled"
+        const val KEY_MAP_NORTH_UP_ENABLED = "north_up_enabled"
         const val MAP_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
         const val MAX_MAP_LOCATION_AGE_MS = 10L * 60L * 1000L
         const val MAP_LOCATION_UPDATE_INTERVAL_MS = 1_000L
