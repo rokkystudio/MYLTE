@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.location.LocationListener
@@ -598,28 +599,31 @@ class MainActivity : AppCompatActivity() {
                 }
         }
 
-        val markerColor = if (isDetailedCoverageVisible) {
-            null
-        } else {
-            ContextCompat.getColor(this, R.color.accent)
-        }
-        cellDatabase.readTowerEstimates()
+        val markerEstimates = cellDatabase.readTowerEstimates()
             .asSequence()
             .filter { isDetailedCoverageVisible || it.cellKey !in hiddenCoverageCellKeys }
             .sortedBy { it.cellKey in connectedCellKeys }
-            .forEach { estimate ->
-                val marker = map.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(estimate.latitude, estimate.longitude))
-                        .icon(
-                            createTowerMarkerIcon(
-                                markerColor ?: towerColor(estimate.cellKey)
-                            )
-                        )
-                )
-                towerMarkers += marker
-                towerByMarkerId[marker.id] = estimate
-            }
+            .toList()
+        val markerLabels = visibleTowerLabels(
+            map = map,
+            estimates = markerEstimates,
+            connectedCellKeys = connectedCellKeys,
+        )
+
+        markerEstimates.forEach { estimate ->
+            val label = markerLabels[estimate.cellKey]
+            val icon = createTowerMarkerIcon(
+                color = towerColor(estimate.cellKey),
+                label = label,
+            )
+            val marker = map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(estimate.latitude, estimate.longitude))
+                    .icon(icon)
+            )
+            towerMarkers += marker
+            towerByMarkerId[marker.id] = estimate
+        }
     }
 
     private fun isCoverageGridLargeEnough(
@@ -959,8 +963,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun towerColor(cellKey: String): Int {
-        val index = Math.floorMod(cellKey.hashCode(), TOWER_COLOR_PALETTE.size)
-        return TOWER_COLOR_PALETTE[index]
+        val hash = cellKey.hashCode().toLong() and 0xFFFFFFFFL
+        val hue = ((hash * GOLDEN_HUE_STEP_DEGREES) % 360.0).toFloat()
+        return Color.HSVToColor(
+            floatArrayOf(
+                hue,
+                TOWER_COLOR_SATURATION,
+                TOWER_COLOR_VALUE,
+            )
+        )
     }
 
     private fun coverageAlpha(signalDbm: Double): Float {
@@ -1213,21 +1224,189 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun createTowerMarkerIcon(color: Int) =
-        IconFactory.getInstance(this).fromBitmap(
-            Bitmap.createBitmap(36, 36, Bitmap.Config.ARGB_8888).apply {
-                val canvas = Canvas(this)
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    this.color = color
-                    style = Paint.Style.FILL
-                }
-                canvas.drawCircle(18f, 18f, 13f, paint)
-                paint.color = Color.WHITE
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 3f
-                canvas.drawCircle(18f, 18f, 13f, paint)
-            }
+    private fun visibleTowerLabels(
+        map: MapLibreMap,
+        estimates: List<CellDatabase.TowerEstimate>,
+        connectedCellKeys: Set<String>,
+    ): Map<String, String> {
+        if (estimates.isEmpty()) return emptyMap()
+
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sp(TOWER_LABEL_TEXT_SIZE_SP)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val pointRadius = dp(TOWER_LABEL_POINT_AVOID_RADIUS_DP).toFloat()
+        val labelGap = dp(TOWER_LABEL_GAP_DP).toFloat()
+        val horizontalPadding = dp(TOWER_LABEL_HORIZONTAL_PADDING_DP).toFloat()
+        val verticalPadding = dp(TOWER_LABEL_VERTICAL_PADDING_DP).toFloat()
+        val mapWidth = towerMapView.width.toFloat()
+        val mapHeight = towerMapView.height.toFloat()
+
+        data class Candidate(
+            val estimate: CellDatabase.TowerEstimate,
+            val x: Float,
+            val y: Float,
+            val label: String,
+            val rect: RectF,
         )
+
+        val screenPoints = estimates.associate { estimate ->
+            val point = map.projection.toScreenLocation(
+                LatLng(estimate.latitude, estimate.longitude)
+            )
+            estimate.cellKey to android.graphics.PointF(point.x, point.y)
+        }
+        val pointRects = screenPoints.mapValues { (_, point) ->
+            RectF(
+                point.x - pointRadius,
+                point.y - pointRadius,
+                point.x + pointRadius,
+                point.y + pointRadius,
+            )
+        }
+        val candidates = estimates.mapNotNull { estimate ->
+            val point = screenPoints.getValue(estimate.cellKey)
+            if (point.x !in 0f..mapWidth || point.y !in 0f..mapHeight) {
+                return@mapNotNull null
+            }
+
+            val label = estimate.operator
+                ?.takeIf { it.isNotBlank() }
+                ?: estimate.radio
+            val textWidth = textPaint.measureText(label)
+            val textHeight = textPaint.fontMetrics.run { bottom - top }
+            val left = point.x + TOWER_MARKER_RADIUS_PX + labelGap
+            val top = point.y - textHeight / 2f - verticalPadding
+            val rect = RectF(
+                left,
+                top,
+                left + textWidth + horizontalPadding * 2f,
+                top + textHeight + verticalPadding * 2f,
+            )
+            if (rect.right > mapWidth || rect.top < 0f || rect.bottom > mapHeight) {
+                return@mapNotNull null
+            }
+            Candidate(
+                estimate = estimate,
+                x = point.x,
+                y = point.y,
+                label = label,
+                rect = rect,
+            )
+        }
+
+        val placedRects = mutableListOf<RectF>()
+        val result = mutableMapOf<String, String>()
+        candidates
+            .sortedWith(
+                compareByDescending<Candidate> { it.estimate.cellKey in connectedCellKeys }
+                    .thenBy { it.y }
+                    .thenBy { it.x }
+            )
+            .forEach { candidate ->
+                val overlapsPoint = pointRects.any { (cellKey, pointRect) ->
+                    cellKey != candidate.estimate.cellKey &&
+                        RectF.intersects(candidate.rect, pointRect)
+                }
+                val overlapsLabel = placedRects.any { placed ->
+                    RectF.intersects(candidate.rect, placed)
+                }
+                if (!overlapsPoint && !overlapsLabel) {
+                    placedRects += candidate.rect
+                    result[candidate.estimate.cellKey] = candidate.label
+                }
+            }
+        return result
+    }
+
+    private fun createTowerMarkerIcon(
+        color: Int,
+        label: String?,
+    ) = IconFactory.getInstance(this).fromBitmap(
+        createTowerMarkerBitmap(
+            color = color,
+            label = label,
+        )
+    )
+
+    private fun createTowerMarkerBitmap(
+        color: Int,
+        label: String?,
+    ): Bitmap {
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = ContextCompat.getColor(this@MainActivity, R.color.text_primary)
+            textSize = sp(TOWER_LABEL_TEXT_SIZE_SP)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val labelWidth = label?.let { textPaint.measureText(it) } ?: 0f
+        val labelHeight = textPaint.fontMetrics.run { bottom - top }
+        val labelSideWidth = if (label == null) {
+            0
+        } else {
+            (
+                dp(TOWER_LABEL_GAP_DP) +
+                    labelWidth +
+                    dp(TOWER_LABEL_HORIZONTAL_PADDING_DP) * 2
+                ).toInt()
+        }
+        val width = TOWER_MARKER_BITMAP_SIZE_PX + labelSideWidth * 2
+        val height = maxOf(
+            TOWER_MARKER_BITMAP_SIZE_PX,
+            (labelHeight + dp(TOWER_LABEL_VERTICAL_PADDING_DP) * 2).toInt(),
+        )
+
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+            val canvas = Canvas(this)
+            val centerX = width / 2f
+            val centerY = height / 2f
+            val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = color
+                style = Paint.Style.FILL
+            }
+            canvas.drawCircle(
+                centerX,
+                centerY,
+                TOWER_MARKER_RADIUS_PX,
+                markerPaint,
+            )
+            markerPaint.color = Color.WHITE
+            markerPaint.style = Paint.Style.STROKE
+            markerPaint.strokeWidth = TOWER_MARKER_STROKE_WIDTH_PX
+            canvas.drawCircle(
+                centerX,
+                centerY,
+                TOWER_MARKER_RADIUS_PX,
+                markerPaint,
+            )
+
+            if (label != null) {
+                val boxLeft = centerX + TOWER_MARKER_RADIUS_PX + dp(TOWER_LABEL_GAP_DP)
+                val boxTop = centerY - labelHeight / 2f - dp(TOWER_LABEL_VERTICAL_PADDING_DP)
+                val boxRight = width.toFloat()
+                val boxBottom = centerY + labelHeight / 2f + dp(TOWER_LABEL_VERTICAL_PADDING_DP)
+                val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    this.color = ContextCompat.getColor(this@MainActivity, R.color.surface_raised)
+                    alpha = TOWER_LABEL_BACKGROUND_ALPHA
+                }
+                canvas.drawRoundRect(
+                    boxLeft,
+                    boxTop,
+                    boxRight,
+                    boxBottom,
+                    dp(TOWER_LABEL_CORNER_RADIUS_DP).toFloat(),
+                    dp(TOWER_LABEL_CORNER_RADIUS_DP).toFloat(),
+                    boxPaint,
+                )
+                val baseline = centerY - (textPaint.fontMetrics.ascent + textPaint.fontMetrics.descent) / 2f
+                canvas.drawText(
+                    label,
+                    boxLeft + dp(TOWER_LABEL_HORIZONTAL_PADDING_DP),
+                    baseline,
+                    textPaint,
+                )
+            }
+        }
+    }
 
     private fun hasInternetConnection(): Boolean {
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -1433,6 +1612,10 @@ class MainActivity : AppCompatActivity() {
         return (value * resources.displayMetrics.density).toInt()
     }
 
+    private fun sp(value: Float): Float {
+        return value * resources.displayMetrics.scaledDensity
+    }
+
     private companion object {
         const val KEY_SELECTED_SCREEN = "selected_screen"
         const val MAP_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
@@ -1448,20 +1631,21 @@ class MainActivity : AppCompatActivity() {
         const val COVERAGE_SIGNAL_MAX_DBM = -70.0
         const val COVERAGE_MIN_ALPHA = 0.10
         const val COVERAGE_MAX_ALPHA = 0.72
-        val TOWER_COLOR_PALETTE = intArrayOf(
-            Color.rgb(33, 150, 243),
-            Color.rgb(156, 39, 176),
-            Color.rgb(255, 152, 0),
-            Color.rgb(0, 150, 136),
-            Color.rgb(233, 30, 99),
-            Color.rgb(63, 81, 181),
-            Color.rgb(205, 220, 57),
-            Color.rgb(121, 85, 72),
-            Color.rgb(0, 188, 212),
-            Color.rgb(255, 87, 34),
-            Color.rgb(103, 58, 183),
-            Color.rgb(139, 195, 74),
-        )
+        const val GOLDEN_HUE_STEP_DEGREES = 137.50776405003785
+        const val TOWER_COLOR_SATURATION = 0.72f
+        const val TOWER_COLOR_VALUE = 0.92f
+        const val TOWER_MARKER_BITMAP_SIZE_PX = 36
+        const val TOWER_MARKER_CENTER_X_PX = 18f
+        const val TOWER_MARKER_CENTER_Y_PX = 18f
+        const val TOWER_MARKER_RADIUS_PX = 13f
+        const val TOWER_MARKER_STROKE_WIDTH_PX = 3f
+        const val TOWER_LABEL_TEXT_SIZE_SP = 11f
+        const val TOWER_LABEL_POINT_AVOID_RADIUS_DP = 16
+        const val TOWER_LABEL_GAP_DP = 4
+        const val TOWER_LABEL_HORIZONTAL_PADDING_DP = 5
+        const val TOWER_LABEL_VERTICAL_PADDING_DP = 2
+        const val TOWER_LABEL_CORNER_RADIUS_DP = 4
+        const val TOWER_LABEL_BACKGROUND_ALPHA = 220
         const val OFFLINE_STYLE_JSON = """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#e7e7e7"}}]}"""
     }
 }
