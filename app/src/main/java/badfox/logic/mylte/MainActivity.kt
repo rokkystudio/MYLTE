@@ -39,6 +39,7 @@ import androidx.core.content.ContextCompat
 import badfox.logic.neoui.NeoScreenItem
 import badfox.logic.neoui.NeoScreenNavigatorView
 import badfox.logic.neoui.NeoTopBarView
+import badfox.logic.neoui.applyNeoSystemBarInsets
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.IconFactory
@@ -187,6 +188,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
+        applyNeoSystemBarInsets(findViewById(R.id.mainRoot))
 
         uiSettings = UiSettings(this)
         cellRepository = CellRepository(applicationContext)
